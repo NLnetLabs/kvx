@@ -8,6 +8,8 @@ readme = "README.md"
 repository = "https://github.com/tweedegolf/kvx"
 exclude = [
     "data/*",
+    "docker-compose.yml",
+    "postgres.sql"
 ]
 
 [features]
