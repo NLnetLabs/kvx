@@ -2,6 +2,13 @@
 name = "kvx"
 version = "0.1.0"
 edition = "2021"
+description = "Abstraction layer over various key-value store backends"
+license = "MPL-2.0"
+readme = "README.md"
+repository = "https://github.com/tweedegolf/kvx"
+exclude = [
+    "data/*",
+]
 
 [features]
 default = ["postgres"]
