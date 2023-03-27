@@ -1,0 +1,14 @@
+version: '3.7'
+services:
+  postgres:
+    image: postgres:14
+    command: ["postgres", "-c", "log_statement=all"]
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_DB: test
+      POSTGRES_HOST_AUTH_METHOD: trust
+      TZ: Europe/Amsterdam
+    volumes:
+      - './postgres.sql:/docker-entrypoint-initdb.d/test.sql:ro'
+    ports: [ "127.0.0.1:5432:5432" ]
+    networks: [ default ]
