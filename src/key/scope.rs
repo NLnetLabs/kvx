@@ -74,7 +74,7 @@ impl Scope {
     }
 
     pub fn add_sub_scope(&mut self, sub_scope: Segment) {
-        self.segments.push(sub_scope.into());
+        self.segments.push(sub_scope);
     }
 
     pub fn with_namespace(&self, namespace: Segment) -> Self {
@@ -84,11 +84,11 @@ impl Scope {
     }
 
     pub fn add_namespace(&mut self, namespace: Segment) {
-        self.segments.insert(0, namespace.into());
+        self.segments.insert(0, namespace);
     }
 
     pub fn remove_namespace(&mut self, namespace: Segment) -> Option<Segment> {
-        if *self.segments.get(0)? == namespace.into() {
+        if *self.segments.get(0)? == namespace {
             Some(self.segments.remove(0))
         } else {
             None

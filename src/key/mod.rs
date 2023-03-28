@@ -40,7 +40,7 @@ impl Key {
     }
 
     pub fn add_sub_scope(&mut self, sub_scope: Segment) {
-        self.scope.add_sub_scope(sub_scope.into());
+        self.scope.add_sub_scope(sub_scope);
     }
 
     pub fn with_namespace(&self, namespace: Segment) -> Self {

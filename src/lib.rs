@@ -50,10 +50,14 @@ impl KeyValueStore {
     pub fn new(storage_uri: &Url, namespace: Segment) -> Result<KeyValueStore> {
         let inner: Box<dyn PubKeyValueStoreBackend> = match storage_uri.scheme() {
             "local" => {
-                let path = format!("{}{}", storage_uri.host_str().unwrap_or_default(), storage_uri.path());
-                
+                let path = format!(
+                    "{}{}",
+                    storage_uri.host_str().unwrap_or_default(),
+                    storage_uri.path()
+                );
+
                 Box::new(Disk::new(&path, namespace.as_str()))
-            },
+            }
             "memory" => Box::new(Memory::new(namespace)),
             #[cfg(feature = "postgres")]
             "postgres" => Box::new(crate::implementations::postgres::Postgres::new(

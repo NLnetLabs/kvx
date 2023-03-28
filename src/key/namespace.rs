@@ -1,5 +1,6 @@
-use crate::key::{Key, Scope, Segment};
 use std::fmt::{Display, Formatter};
+
+use crate::key::{Key, Scope, Segment};
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Namespaced<'a, T> {

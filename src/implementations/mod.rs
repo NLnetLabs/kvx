@@ -296,7 +296,7 @@ mod tests {
 
                     store
                         .transaction(
-                            &key_scope.clone(),
+                            &key_scope,
                             Box::new(move |s: &mut dyn KeyValueStoreBackend| {
                                 let current_counter = s.get(&"counter".parse().unwrap())?.unwrap();
                                 let mut c = counter_ref.lock().unwrap();
