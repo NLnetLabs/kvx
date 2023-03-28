@@ -49,12 +49,23 @@ pub struct KeyValueStore {
 impl KeyValueStore {
     pub fn new(storage_uri: &Url, namespace: Segment) -> Result<KeyValueStore> {
         let inner: Box<dyn PubKeyValueStoreBackend> = match storage_uri.scheme() {
-            "local" => {
-                let path = format!("{}{}", storage_uri.host_str().unwrap_or_default(), storage_uri.path());
-                
-                Box::new(Disk::new(&path, namespace.as_str()))
-            },
-            "memory" => Box::new(Memory::new(namespace)),
+            "local" => Box::new(Disk::new(
+                &format!(
+                    "{}{}",
+                    storage_uri.host_str().unwrap_or_default(),
+                    storage_uri.path()
+                ),
+                namespace.as_str(),
+            )),
+            "memory" => Box::new(Memory::new(
+                format!(
+                    "{} {}",
+                    storage_uri.host_str().unwrap_or_default(),
+                    namespace
+                )
+                .parse()
+                .unwrap_or(namespace),
+            )),
             #[cfg(feature = "postgres")]
             "postgres" => Box::new(crate::implementations::postgres::Postgres::new(
                 storage_uri,
