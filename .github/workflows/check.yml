@@ -43,6 +43,7 @@ jobs:
           restore-keys: nightly-
 
       - run: rustup toolchain install nightly --profile minimal
+      - run: rustup component add rustfmt
       - run: cargo install cargo-udeps || true
       - run: |
           cargo +nightly fmt --check
