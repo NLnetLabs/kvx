@@ -1,0 +1,14 @@
+[package]
+name = "kvx_macros"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+kvx = "0.1.0"
+proc-macro-error = "1.0.4"
+proc-macro2 = "1.0.56"
+quote = "1.0.26"
+syn = "2.0.13"
