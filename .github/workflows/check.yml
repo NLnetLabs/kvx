@@ -42,9 +42,10 @@ jobs:
           key: nightly-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: nightly-
 
-      - run: rustup toolchain install nightly --profile minimal
-      - run: rustup default nightly
-      - run: rustup component add rustfmt
+      - run: |
+          rustup toolchain install nightly --profile minimal
+          rustup default nightly
+          rustup component add rustfmt
       - run: cargo install cargo-udeps || true
       - run: |
           cargo fmt --check
