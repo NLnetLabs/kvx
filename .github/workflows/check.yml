@@ -1,0 +1,47 @@
+name: Check
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: cargo-
+
+      - run: |
+          cargo check --all-features --tests
+          cargo clippy --all-features --tests -- -D warnings
+          cargo fmt --check
+          cargo build --release --all-features --verbose
+
+  udeps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: nightly-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: nightly-
+
+      - run: cargo install cargo-udeps
+      - run: rustup toolchain install nightly
+      - run: cargo +nightly udeps --all-features --all-targets
