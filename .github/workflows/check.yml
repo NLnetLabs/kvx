@@ -22,13 +22,13 @@ jobs:
           key: cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: cargo-
 
+      - run: rustup toolchain install stable --profile minimal
       - run: |
           cargo check --all-features --tests
           cargo clippy --all-features --tests -- -D warnings
-          cargo fmt --check
           cargo build --release --all-features --verbose
 
-  udeps:
+  check-nightly:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -42,6 +42,8 @@ jobs:
           key: nightly-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: nightly-
 
-      - run: cargo install cargo-udeps
-      - run: rustup toolchain install nightly
-      - run: cargo +nightly udeps --all-features --all-targets
+      - run: rustup toolchain install nightly --profile minimal
+      - run: cargo install cargo-udeps || true
+      - run: |
+          cargo +nightly fmt --check
+          cargo +nightly udeps --all-features --all-targets
