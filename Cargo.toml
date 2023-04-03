@@ -27,4 +27,4 @@ postgres-types = { version = "0.2", features = ["derive"], optional = true }
 r2d2_postgres = { version = "0.18", optional = true }
 
 [dev-dependencies]
-serial_test = "1.0"
+serial_test = "2.0"
