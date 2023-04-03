@@ -72,8 +72,7 @@ impl ReadStore for ReadOnlyMemory {
     }
 
     fn list_scopes(&mut self) -> Result<Vec<Scope>> {
-        let scope = Scope::global();
-        let scope = scope.with_namespace(self.namespace.clone());
+        let scope = Scope::global().with_namespace(self.namespace.clone());
         let scopes: BTreeSet<Scope> = self
             .inner
             .keys()
