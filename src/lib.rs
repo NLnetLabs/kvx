@@ -49,14 +49,15 @@ pub struct KeyValueStore {
 impl KeyValueStore {
     pub fn new(storage_uri: &Url, namespace: Segment) -> Result<KeyValueStore> {
         let inner: Box<dyn PubKeyValueStoreBackend> = match storage_uri.scheme() {
-            "local" => Box::new(Disk::new(
-                &format!(
+            "local" => {
+                let path = format!(
                     "{}{}",
                     storage_uri.host_str().unwrap_or_default(),
                     storage_uri.path()
-                ),
-                namespace.as_str(),
-            )),
+                );
+
+                Box::new(Disk::new(&path, namespace.as_str())?)
+            }
             "memory" => Box::new(Memory::new(
                 format!(
                     "{} {}",
