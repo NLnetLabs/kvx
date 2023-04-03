@@ -56,7 +56,7 @@ impl KeyValueStore {
                     storage_uri.path()
                 );
 
-                Box::new(Disk::new(&path, namespace.as_str())?)
+                Box::new(Disk::new(&path, namespace.as_str()))
             }
             "memory" => Box::new(Memory::new(
                 format!(
