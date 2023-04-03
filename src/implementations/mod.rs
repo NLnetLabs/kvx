@@ -520,7 +520,7 @@ mod tests {
             fs::remove_dir_all(path).unwrap();
         }
 
-        Disk::new(path, namespace.as_str())
+        Disk::new(path, namespace.as_str()).unwrap()
     }
 
     #[cfg(feature = "postgres")]

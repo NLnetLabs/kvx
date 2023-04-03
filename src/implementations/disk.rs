@@ -20,9 +20,12 @@ pub struct Disk {
 }
 
 impl Disk {
-    pub fn new(path: &str, namespace: &str) -> Self {
+    pub fn new(path: &str, namespace: &str) -> Result<Self> {
         let root = PathBuf::from(path).join(namespace);
-        Disk { root }
+        if !root.try_exists().unwrap_or_default() {
+            fs::create_dir_all(&root)?;
+        }
+        Ok(Disk { root })
     }
 }
 
