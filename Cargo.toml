@@ -1,2 +1,33 @@
 [workspace]
-members = ["kvx", "kvx-macros"]
+members = ["kvx-macros"]
+
+[package]
+name = "kvx"
+version = "0.1.0"
+edition = "2021"
+description = "Abstraction layer over various key-value store backends"
+license = "MPL-2.0"
+readme = "README.md"
+repository = "https://github.com/tweedegolf/kvx"
+exclude = [
+    "data/*",
+    "docker-compose.yml",
+    "postgres.sql"
+]
+
+[features]
+default = ["postgres"]
+postgres = ["dep:postgres", "dep:r2d2_postgres", "dep:postgres-types"]
+
+[dependencies]
+lazy_static = "1.4"
+rand = "0.8"
+serde_json = "1.0"
+thiserror = "1.0"
+url = "2.3"
+postgres = { version = "0.19", features = ["with-serde_json-1"], optional = true }
+postgres-types = { version = "0.2", features = ["derive"], optional = true }
+r2d2_postgres = { version = "0.18", optional = true }
+
+[dev-dependencies]
+serial_test = "2.0"
