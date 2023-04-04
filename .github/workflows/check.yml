@@ -50,3 +50,32 @@ jobs:
       - run: |
           cargo fmt --check
           cargo udeps --all-features --all-targets
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+        key: cargo-${{ hashFiles('**/Cargo.toml') }}
+        restore-keys: cargo-
+
+    - run: psql -U postgres -h localhost -p 5432 -d postgres -f postgres.sql
+    - run: cargo test --all-features --verbose

@@ -494,10 +494,8 @@ mod tests {
 
     #[cfg(feature = "postgres")]
     fn postgres(namespace: Segment) -> Postgres<PgPool> {
-        use std::str::FromStr;
-
         let mut pg = Postgres::new(
-            &url::Url::from_str("postgres://test@127.0.0.1/test").unwrap(),
+            &url::Url::parse("postgres://postgres@localhost/postgres").unwrap(),
             namespace,
         )
         .unwrap();
