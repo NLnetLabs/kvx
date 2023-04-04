@@ -4,7 +4,7 @@ use std::{
     str::FromStr,
 };
 
-use crate::key::{ParseSegmentError, Segment};
+use crate::key::{ParseSegmentError, SegmentBuf};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(
@@ -12,26 +12,26 @@ use crate::key::{ParseSegmentError, Segment};
     derive(postgres::types::ToSql, postgres::types::FromSql)
 )]
 pub struct Scope {
-    segments: Vec<Segment>,
+    segments: Vec<SegmentBuf>,
 }
 
 impl Scope {
     pub const SEPARATOR: &'static str = "/";
 
-    pub fn from_segment(segment: Segment) -> Self {
-        Scope::new(vec![segment])
+    pub fn from_segment(segment: impl Into<SegmentBuf>) -> Self {
+        Scope::new(vec![segment.into()])
     }
 
     pub fn global() -> Self {
         Scope::new(Vec::new())
     }
 
-    pub fn new(segments: Vec<Segment>) -> Self {
+    pub fn new(segments: Vec<SegmentBuf>) -> Self {
         Scope { segments }
     }
 
     #[cfg(feature = "postgres")]
-    pub(crate) fn as_vec(&self) -> &Vec<Segment> {
+    pub(crate) fn as_vec(&self) -> &Vec<SegmentBuf> {
         &self.segments
     }
 
@@ -67,28 +67,28 @@ impl Scope {
             .collect()
     }
 
-    pub fn with_sub_scope(&self, namespace: Segment) -> Self {
+    pub fn with_sub_scope(&self, namespace: impl Into<SegmentBuf>) -> Self {
         let mut clone = self.clone();
         clone.add_sub_scope(namespace);
         clone
     }
 
-    pub fn add_sub_scope(&mut self, sub_scope: Segment) {
-        self.segments.push(sub_scope);
+    pub fn add_sub_scope(&mut self, sub_scope: impl Into<SegmentBuf>) {
+        self.segments.push(sub_scope.into());
     }
 
-    pub fn with_namespace(&self, namespace: Segment) -> Self {
+    pub fn with_namespace(&self, namespace: impl Into<SegmentBuf>) -> Self {
         let mut clone = self.clone();
         clone.add_namespace(namespace);
         clone
     }
 
-    pub fn add_namespace(&mut self, namespace: Segment) {
-        self.segments.insert(0, namespace);
+    pub fn add_namespace(&mut self, namespace: impl Into<SegmentBuf>) {
+        self.segments.insert(0, namespace.into());
     }
 
-    pub fn remove_namespace(&mut self, namespace: Segment) -> Option<Segment> {
-        if *self.segments.get(0)? == namespace {
+    pub fn remove_namespace(&mut self, namespace: impl Into<SegmentBuf>) -> Option<SegmentBuf> {
+        if *self.segments.get(0)? == namespace.into() {
             Some(self.segments.remove(0))
         } else {
             None
@@ -103,7 +103,7 @@ impl Display for Scope {
             "{}",
             self.segments
                 .iter()
-                .map(Segment::as_str)
+                .map(|segment| segment.as_str())
                 .collect::<Vec<_>>()
                 .join(Self::SEPARATOR)
         )
@@ -117,15 +117,15 @@ impl FromStr for Scope {
         let s = s.strip_suffix(Self::SEPARATOR).unwrap_or(s);
         let segments = s
             .split(Self::SEPARATOR)
-            .map(Segment::from_str)
+            .map(SegmentBuf::from_str)
             .collect::<Result<_, _>>()?;
         Ok(Scope { segments })
     }
 }
 
 impl IntoIterator for Scope {
-    type IntoIter = <Vec<Segment> as IntoIterator>::IntoIter;
-    type Item = <Vec<Segment> as IntoIterator>::Item;
+    type IntoIter = <Vec<SegmentBuf> as IntoIterator>::IntoIter;
+    type Item = <Vec<SegmentBuf> as IntoIterator>::Item;
 
     fn into_iter(self) -> Self::IntoIter {
         self.segments.into_iter()
@@ -133,29 +133,29 @@ impl IntoIterator for Scope {
 }
 
 impl<'a> IntoIterator for &'a Scope {
-    type IntoIter = <&'a Vec<Segment> as IntoIterator>::IntoIter;
-    type Item = <&'a Vec<Segment> as IntoIterator>::Item;
+    type IntoIter = <&'a Vec<SegmentBuf> as IntoIterator>::IntoIter;
+    type Item = <&'a Vec<SegmentBuf> as IntoIterator>::Item;
 
     fn into_iter(self) -> Self::IntoIter {
         self.segments.iter()
     }
 }
 
-impl Extend<Segment> for Scope {
-    fn extend<T: IntoIterator<Item = Segment>>(&mut self, iter: T) {
-        self.segments.extend(iter.into_iter().map(Into::into))
+impl Extend<SegmentBuf> for Scope {
+    fn extend<T: IntoIterator<Item = SegmentBuf>>(&mut self, iter: T) {
+        self.segments.extend(iter.into_iter())
     }
 }
 
-impl FromIterator<Segment> for Scope {
-    fn from_iter<T: IntoIterator<Item = Segment>>(iter: T) -> Self {
+impl FromIterator<SegmentBuf> for Scope {
+    fn from_iter<T: IntoIterator<Item = SegmentBuf>>(iter: T) -> Self {
         let segments = iter.into_iter().collect();
         Scope { segments }
     }
 }
 
-impl From<Vec<Segment>> for Scope {
-    fn from(segments: Vec<Segment>) -> Self {
+impl From<Vec<SegmentBuf>> for Scope {
+    fn from(segments: Vec<SegmentBuf>) -> Self {
         Scope { segments }
     }
 }

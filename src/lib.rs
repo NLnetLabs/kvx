@@ -6,6 +6,7 @@ use serde_json::Value;
 use url::Url;
 
 pub use crate::error::Error;
+use crate::key::SegmentBuf;
 
 mod error;
 mod implementations;
@@ -47,7 +48,8 @@ pub struct KeyValueStore {
 }
 
 impl KeyValueStore {
-    pub fn new(storage_uri: &Url, namespace: Segment) -> Result<KeyValueStore> {
+    pub fn new(storage_uri: &Url, namespace: impl Into<SegmentBuf>) -> Result<KeyValueStore> {
+        let namespace = namespace.into();
         let inner: Box<dyn PubKeyValueStoreBackend> = match storage_uri.scheme() {
             "local" => {
                 let path = format!(

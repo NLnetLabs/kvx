@@ -6,7 +6,7 @@ use std::{
 use lazy_static::lazy_static;
 
 use crate::{
-    key::{Key, Scope, Segment},
+    key::{Key, Scope, SegmentBuf},
     Error, KeyValueStoreBackend, ReadStore, Result, TransactionCallback, WriteStore,
 };
 
@@ -19,15 +19,15 @@ lazy_static! {
 
 #[derive(Debug)]
 pub(crate) struct Memory {
-    namespace: Segment,
+    namespace: SegmentBuf,
     inner: &'static Mutex<MemoryStore>,
     locks: &'static Mutex<Vec<Scope>>,
 }
 
 impl Memory {
-    pub(crate) fn new(namespace: Segment) -> Self {
+    pub(crate) fn new(namespace: impl Into<SegmentBuf>) -> Self {
         Memory {
-            namespace,
+            namespace: namespace.into(),
             inner: &STORE,
             locks: &LOCKS,
         }
@@ -41,7 +41,7 @@ impl Memory {
 }
 
 struct ReadOnlyMemory {
-    namespace: Segment,
+    namespace: SegmentBuf,
     inner: MemoryStore,
 }
 
