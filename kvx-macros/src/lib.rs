@@ -24,6 +24,6 @@ pub fn segment(input: TokenStream) -> TokenStream {
                 note = format!("Segment may not contain {}", Scope::SEPARATOR);
         }
     } else {
-        quote!(::kvx::Segment::new(#s).unwrap()).into()
+        quote!(::kvx::Segment::parse(#s).unwrap()).into()
     }
 }
