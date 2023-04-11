@@ -30,17 +30,17 @@ impl Disk {
 }
 
 impl ReadStore for Disk {
-    fn has(&mut self, key: &Key) -> Result<bool> {
+    fn has(&self, key: &Key) -> Result<bool> {
         let exists = key.as_path(&self.root).exists();
         Ok(exists)
     }
 
-    fn has_scope(&mut self, scope: &Scope) -> Result<bool> {
+    fn has_scope(&self, scope: &Scope) -> Result<bool> {
         let exists = scope.as_path(&self.root).try_exists()?;
         Ok(exists)
     }
 
-    fn get(&mut self, key: &Key) -> Result<Option<Value>> {
+    fn get(&self, key: &Key) -> Result<Option<Value>> {
         let path = key.as_path(&self.root);
         if path.exists() {
             let value = fs::read_to_string(key.as_path(&self.root))?;
@@ -51,7 +51,7 @@ impl ReadStore for Disk {
         }
     }
 
-    fn list_keys(&mut self, scope: &Scope) -> Result<Vec<Key>> {
+    fn list_keys(&self, scope: &Scope) -> Result<Vec<Key>> {
         let path = scope.as_path(&self.root);
         if !path.exists() {
             return Ok(vec![]);
@@ -63,7 +63,7 @@ impl ReadStore for Disk {
             .collect()
     }
 
-    fn list_scopes(&mut self) -> Result<Vec<Scope>> {
+    fn list_scopes(&self) -> Result<Vec<Scope>> {
         list_dirs_recursive(Scope::global().as_path(&self.root))?
             .into_iter()
             .map(|path| path.as_scope(&self.root))
@@ -72,7 +72,7 @@ impl ReadStore for Disk {
 }
 
 impl WriteStore for Disk {
-    fn store(&mut self, key: &Key, value: Value) -> Result<()> {
+    fn store(&self, key: &Key, value: Value) -> Result<()> {
         let path = key.as_path(&self.root);
         let dir = key.scope().as_path(&self.root);
 
@@ -85,7 +85,7 @@ impl WriteStore for Disk {
         Ok(())
     }
 
-    fn move_value(&mut self, from: &Key, to: &Key) -> Result<()> {
+    fn move_value(&self, from: &Key, to: &Key) -> Result<()> {
         let from_path = from.as_path(&self.root);
         let to_path = to.as_path(&self.root);
 
@@ -95,7 +95,7 @@ impl WriteStore for Disk {
         Ok(())
     }
 
-    fn move_scope(&mut self, from: &Scope, to: &Scope) -> Result<()> {
+    fn move_scope(&self, from: &Scope, to: &Scope) -> Result<()> {
         let from_path = from.as_path(&self.root);
         let to_path = to.as_path(&self.root);
 
@@ -105,7 +105,7 @@ impl WriteStore for Disk {
         Ok(())
     }
 
-    fn delete(&mut self, key: &Key) -> Result<()> {
+    fn delete(&self, key: &Key) -> Result<()> {
         let path = key.as_path(&self.root);
 
         fs::remove_file(&path)?;
@@ -114,7 +114,7 @@ impl WriteStore for Disk {
         Ok(())
     }
 
-    fn delete_scope(&mut self, scope: &Scope) -> Result<()> {
+    fn delete_scope(&self, scope: &Scope) -> Result<()> {
         let path = scope.as_path(&self.root);
 
         fs::remove_dir_all(&path)?;
@@ -123,7 +123,7 @@ impl WriteStore for Disk {
         Ok(())
     }
 
-    fn clear(&mut self) -> Result<()> {
+    fn clear(&self) -> Result<()> {
         if self.root.exists() {
             let _ = fs::remove_dir_all(&self.root);
         }
@@ -133,7 +133,7 @@ impl WriteStore for Disk {
 }
 
 impl KeyValueStoreBackend for Disk {
-    fn transaction(&mut self, scope: &Scope, callback: TransactionCallback) -> Result<()> {
+    fn transaction(&self, scope: &Scope, callback: TransactionCallback) -> Result<()> {
         let lock = FileLock::lock(scope.as_path(&self.root))?;
 
         let mut store = self.clone();

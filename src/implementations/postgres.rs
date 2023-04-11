@@ -1,4 +1,7 @@
-use std::fmt::Debug;
+use std::{
+    cell::{RefCell, RefMut},
+    fmt::Debug,
+};
 
 use postgres::{NoTls, Row, ToStatement, Transaction};
 use postgres_types::ToSql;
@@ -33,33 +36,42 @@ impl Postgres<PgPool> {
             executor: pool,
         })
     }
+
+    #[cfg(test)]
+    pub(crate) fn truncate(&self) -> Result<()> {
+        self.executor
+            .executor()?
+            .exec_query("TRUNCATE table store", &[])?;
+
+        Ok(())
+    }
 }
 
 impl<E> KeyValueStoreBackend for Postgres<E>
 where
-    E: GetClient,
+    E: HasExecutor,
 {
-    fn transaction(&mut self, _scope: &Scope, callback: TransactionCallback) -> Result<()> {
-        let tries = 10;
+    fn transaction(&self, _scope: &Scope, callback: TransactionCallback) -> Result<()> {
+        const TRIES: usize = 10;
 
-        for i in 0..=tries {
-            let mut client = self.executor.get_client()?;
+        for i in 0..=TRIES {
+            let mut client = self.executor.executor()?;
             let mut transaction = client.exec_transaction()?;
             transaction.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", &[])?;
 
             let mut postgres = Postgres {
                 namespace: self.namespace.clone(),
-                executor: transaction,
+                executor: RefCell::new(transaction),
             };
 
             if let Err(e) = callback(&mut postgres) {
-                postgres.executor.rollback()?;
+                postgres.executor.into_inner().rollback()?;
 
-                if i == tries {
+                if i == TRIES {
                     Err(e)?;
                 }
             } else {
-                postgres.executor.commit()?;
+                postgres.executor.into_inner().commit()?;
                 break;
             }
         }
@@ -68,13 +80,13 @@ where
     }
 }
 
-impl<E: GetClient> ReadStore for Postgres<E> {
-    fn has(&mut self, key: &Key) -> Result<bool> {
+impl<E: HasExecutor> ReadStore for Postgres<E> {
+    fn has(&self, key: &Key) -> Result<bool> {
         let key = key.with_namespace(self.namespace.clone());
 
         Ok(self
             .executor
-            .get_client()?
+            .executor()?
             .exec_query_opt(
                 "SELECT 1 FROM store WHERE scope = $1 AND key = $2",
                 &[key.scope().as_vec(), key.name()],
@@ -82,12 +94,12 @@ impl<E: GetClient> ReadStore for Postgres<E> {
             .is_some())
     }
 
-    fn has_scope(&mut self, scope: &Scope) -> Result<bool> {
+    fn has_scope(&self, scope: &Scope) -> Result<bool> {
         let scope = scope.with_namespace(self.namespace.clone());
 
         Ok(self
             .executor
-            .get_client()?
+            .executor()?
             .exec_query_opt(
                 "SELECT 1 FROM store WHERE scope[:$2]  = $1",
                 &[scope.as_vec(), &scope.len()],
@@ -95,11 +107,11 @@ impl<E: GetClient> ReadStore for Postgres<E> {
             .is_some())
     }
 
-    fn get(&mut self, key: &Key) -> Result<Option<serde_json::Value>> {
+    fn get(&self, key: &Key) -> Result<Option<serde_json::Value>> {
         let key = key.with_namespace(self.namespace.clone());
         Ok(self
             .executor
-            .get_client()?
+            .executor()?
             .exec_query_opt(
                 "SELECT value FROM store WHERE scope = $1 AND key = $2",
                 &[key.scope().as_vec(), key.name()],
@@ -107,11 +119,11 @@ impl<E: GetClient> ReadStore for Postgres<E> {
             .and_then(|row| row.get(0)))
     }
 
-    fn list_keys(&mut self, scope: &Scope) -> Result<Vec<Key>> {
+    fn list_keys(&self, scope: &Scope) -> Result<Vec<Key>> {
         let scope = scope.with_namespace(self.namespace.clone());
         Ok(self
             .executor
-            .get_client()?
+            .executor()?
             .exec_query(
                 "SELECT scope, key FROM store WHERE scope[:$2] = $1",
                 &[scope.as_vec(), &scope.len()],
@@ -128,10 +140,10 @@ impl<E: GetClient> ReadStore for Postgres<E> {
             .collect::<Vec<Key>>())
     }
 
-    fn list_scopes(&mut self) -> Result<Vec<Scope>> {
+    fn list_scopes(&self) -> Result<Vec<Scope>> {
         Ok(self
             .executor
-            .get_client()?
+            .executor()?
             .exec_query("SELECT scope FROM store", &[])?
             .into_iter()
             .flat_map(|row| {
@@ -147,10 +159,10 @@ impl<E: GetClient> ReadStore for Postgres<E> {
     }
 }
 
-impl<E: GetClient> WriteStore for Postgres<E> {
-    fn store(&mut self, key: &Key, value: serde_json::Value) -> Result<()> {
+impl<E: HasExecutor> WriteStore for Postgres<E> {
+    fn store(&self, key: &Key, value: serde_json::Value) -> Result<()> {
         let key = key.with_namespace(self.namespace.clone());
-        self.executor.get_client()?.exec_execute(
+        self.executor.executor()?.exec_execute(
             "INSERT INTO store (scope, key, value) VALUES ($1, $2, $3) ON CONFLICT (scope, key) \
              DO UPDATE SET value = $3",
             &[key.scope().as_vec(), key.name(), &value],
@@ -159,11 +171,11 @@ impl<E: GetClient> WriteStore for Postgres<E> {
         Ok(())
     }
 
-    fn move_value(&mut self, from: &Key, to: &Key) -> Result<()> {
+    fn move_value(&self, from: &Key, to: &Key) -> Result<()> {
         let from = from.with_namespace(self.namespace.clone());
         let to = to.with_namespace(self.namespace.clone());
 
-        self.executor.get_client()?.exec_execute(
+        self.executor.executor()?.exec_execute(
             "UPDATE store SET scope = $3, key = $4 WHERE scope = $1 AND key = $2",
             &[
                 from.scope().as_vec(),
@@ -176,11 +188,11 @@ impl<E: GetClient> WriteStore for Postgres<E> {
         Ok(())
     }
 
-    fn move_scope(&mut self, from: &Scope, to: &Scope) -> Result<()> {
+    fn move_scope(&self, from: &Scope, to: &Scope) -> Result<()> {
         let from = from.with_namespace(self.namespace.clone());
         let to = to.with_namespace(self.namespace.clone());
 
-        self.executor.get_client()?.exec_execute(
+        self.executor.executor()?.exec_execute(
             "UPDATE store SET scope = $2 WHERE scope = $1",
             &[&from.as_vec(), &to.as_vec()],
         )?;
@@ -188,9 +200,9 @@ impl<E: GetClient> WriteStore for Postgres<E> {
         Ok(())
     }
 
-    fn delete(&mut self, key: &Key) -> Result<()> {
+    fn delete(&self, key: &Key) -> Result<()> {
         let key = key.with_namespace(self.namespace.clone());
-        self.executor.get_client()?.exec_execute(
+        self.executor.executor()?.exec_execute(
             "DELETE FROM store WHERE scope = $1 AND key = $2",
             &[key.scope().as_vec(), key.name()],
         )?;
@@ -198,45 +210,45 @@ impl<E: GetClient> WriteStore for Postgres<E> {
         Ok(())
     }
 
-    fn delete_scope(&mut self, scope: &Scope) -> Result<()> {
+    fn delete_scope(&self, scope: &Scope) -> Result<()> {
         let scope = scope.with_namespace(self.namespace.clone());
         self.executor
-            .get_client()?
+            .executor()?
             .exec_execute("DELETE FROM store WHERE scope = $1", &[&scope.as_vec()])?;
 
         Ok(())
     }
 
-    fn clear(&mut self) -> Result<()> {
+    fn clear(&self) -> Result<()> {
         self.executor
-            .get_client()?
+            .executor()?
             .exec_execute("DELETE FROM store WHERE scope[1] = $1", &[&self.namespace])?;
 
         Ok(())
     }
 }
 
-trait GetClient {
-    type Client<'a>: Executor
+trait HasExecutor {
+    type Executor<'a>: Executor
     where
         Self: 'a;
 
-    fn get_client(&mut self) -> Result<Self::Client<'_>>;
+    fn executor(&self) -> Result<Self::Executor<'_>>;
 }
 
-impl GetClient for PgPool {
-    type Client<'a> = PooledConnection<PostgresClient> where Self: 'a;
+impl HasExecutor for PgPool {
+    type Executor<'a> = PooledConnection<PostgresClient> where Self: 'a;
 
-    fn get_client(&mut self) -> Result<Self::Client<'_>> {
+    fn executor(&self) -> Result<Self::Executor<'_>> {
         Ok(self.get()?)
     }
 }
 
-impl GetClient for Transaction<'_> {
-    type Client<'a> = &'a mut Self where Self: 'a;
+impl<'b> HasExecutor for RefCell<Transaction<'b>> {
+    type Executor<'a> = RefMut<'a, Transaction<'b>> where Self: 'a;
 
-    fn get_client(&mut self) -> Result<Self::Client<'_>> {
-        Ok(self)
+    fn executor(&self) -> Result<Self::Executor<'_>> {
+        Ok(self.borrow_mut())
     }
 }
 
@@ -258,37 +270,6 @@ pub trait Executor {
     fn exec_execute<T>(&mut self, query: &T, params: &[&(dyn ToSql + Sync)]) -> Result<u64>
     where
         T: ?Sized + ToStatement;
-}
-
-impl<E: GetClient> Executor for Postgres<E> {
-    fn exec_transaction(&mut self) -> Result<Transaction<'_>> {
-        todo!()
-    }
-
-    fn exec_query<T>(&mut self, query: &T, params: &[&(dyn ToSql + Sync)]) -> Result<Vec<Row>>
-    where
-        T: ?Sized + ToStatement,
-    {
-        self.executor.get_client()?.exec_query(query, params)
-    }
-
-    fn exec_query_opt<T>(
-        &mut self,
-        query: &T,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> Result<Option<Row>>
-    where
-        T: ?Sized + ToStatement,
-    {
-        self.executor.get_client()?.exec_query_opt(query, params)
-    }
-
-    fn exec_execute<T>(&mut self, query: &T, params: &[&(dyn ToSql + Sync)]) -> Result<u64>
-    where
-        T: ?Sized + ToStatement,
-    {
-        self.executor.get_client()?.exec_execute(query, params)
-    }
 }
 
 impl Executor for PooledConnection<PostgresClient> {
@@ -322,7 +303,7 @@ impl Executor for PooledConnection<PostgresClient> {
     }
 }
 
-impl Executor for &mut Transaction<'_> {
+impl Executor for RefMut<'_, Transaction<'_>> {
     fn exec_transaction(&mut self) -> Result<Transaction<'_>> {
         Ok(self.transaction()?)
     }

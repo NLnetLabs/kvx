@@ -46,22 +46,22 @@ struct ReadOnlyMemory {
 }
 
 impl ReadStore for ReadOnlyMemory {
-    fn has(&mut self, key: &Key) -> Result<bool> {
+    fn has(&self, key: &Key) -> Result<bool> {
         let key = key.with_namespace(self.namespace.clone());
         Ok(self.inner.contains_key(&key))
     }
 
-    fn has_scope(&mut self, scope: &Scope) -> Result<bool> {
+    fn has_scope(&self, scope: &Scope) -> Result<bool> {
         let scope = scope.with_namespace(self.namespace.clone());
         Ok(self.inner.keys().any(|k| k.scope().starts_with(&scope)))
     }
 
-    fn get(&mut self, key: &Key) -> Result<Option<serde_json::Value>> {
+    fn get(&self, key: &Key) -> Result<Option<serde_json::Value>> {
         let key = key.with_namespace(self.namespace.clone());
         Ok(self.inner.get(&key).cloned())
     }
 
-    fn list_keys(&mut self, scope: &Scope) -> Result<Vec<Key>> {
+    fn list_keys(&self, scope: &Scope) -> Result<Vec<Key>> {
         let scope = scope.with_namespace(self.namespace.clone());
         Ok(self
             .inner
@@ -71,7 +71,7 @@ impl ReadStore for ReadOnlyMemory {
             .collect::<Vec<Key>>())
     }
 
-    fn list_scopes(&mut self) -> Result<Vec<Scope>> {
+    fn list_scopes(&self) -> Result<Vec<Scope>> {
         let scope = Scope::global().with_namespace(self.namespace.clone());
         let scopes: BTreeSet<Scope> = self
             .inner
@@ -90,7 +90,7 @@ impl ReadStore for ReadOnlyMemory {
 }
 
 impl KeyValueStoreBackend for Memory {
-    fn transaction(&mut self, scope: &Scope, callback: TransactionCallback) -> Result<()> {
+    fn transaction(&self, scope: &Scope, callback: TransactionCallback) -> Result<()> {
         let scope = scope.with_namespace(self.namespace.clone());
 
         // try 10 times to acquire mutex
@@ -113,7 +113,7 @@ impl KeyValueStoreBackend for Memory {
             }
         }
 
-        callback(&mut *self)?;
+        callback(self)?;
 
         let mut locks = self
             .locks
@@ -127,22 +127,22 @@ impl KeyValueStoreBackend for Memory {
 }
 
 impl ReadStore for Memory {
-    fn has(&mut self, key: &Key) -> Result<bool> {
+    fn has(&self, key: &Key) -> Result<bool> {
         let key = key.with_namespace(self.namespace.clone());
         Ok(self.lock()?.contains_key(&key))
     }
 
-    fn has_scope(&mut self, scope: &Scope) -> Result<bool> {
+    fn has_scope(&self, scope: &Scope) -> Result<bool> {
         let scope = scope.with_namespace(self.namespace.clone());
         Ok(self.lock()?.keys().any(|k| k.scope().starts_with(&scope)))
     }
 
-    fn get(&mut self, key: &Key) -> Result<Option<serde_json::Value>> {
+    fn get(&self, key: &Key) -> Result<Option<serde_json::Value>> {
         let key = key.with_namespace(self.namespace.clone());
         Ok(self.lock()?.get(&key).cloned())
     }
 
-    fn list_keys(&mut self, scope: &Scope) -> Result<Vec<Key>> {
+    fn list_keys(&self, scope: &Scope) -> Result<Vec<Key>> {
         let scope = scope.with_namespace(self.namespace.clone());
         Ok(self
             .lock()?
@@ -157,7 +157,7 @@ impl ReadStore for Memory {
             .collect::<Vec<Key>>())
     }
 
-    fn list_scopes(&mut self) -> Result<Vec<Scope>> {
+    fn list_scopes(&self) -> Result<Vec<Scope>> {
         let scope = Scope::global();
         let scope = scope.with_namespace(self.namespace.clone());
         let scopes: BTreeSet<Scope> = self
@@ -177,13 +177,13 @@ impl ReadStore for Memory {
 }
 
 impl WriteStore for Memory {
-    fn store(&mut self, key: &Key, value: serde_json::Value) -> Result<()> {
+    fn store(&self, key: &Key, value: serde_json::Value) -> Result<()> {
         let key = key.with_namespace(self.namespace.clone());
         self.lock()?.insert(key, value);
         Ok(())
     }
 
-    fn move_value(&mut self, from: &Key, to: &Key) -> Result<()> {
+    fn move_value(&self, from: &Key, to: &Key) -> Result<()> {
         let from = from.with_namespace(self.namespace.clone());
         let to = to.with_namespace(self.namespace.clone());
 
@@ -196,26 +196,26 @@ impl WriteStore for Memory {
         }
     }
 
-    fn delete(&mut self, key: &Key) -> Result<()> {
+    fn delete(&self, key: &Key) -> Result<()> {
         let key = key.with_namespace(self.namespace.clone());
         self.lock()?.remove(&key).ok_or(Error::UnknownKey)?;
         Ok(())
     }
 
-    fn delete_scope(&mut self, scope: &Scope) -> Result<()> {
+    fn delete_scope(&self, scope: &Scope) -> Result<()> {
         let scope = scope.with_namespace(self.namespace.clone());
         self.lock()?.retain(|k, _| !k.scope().starts_with(&scope));
         Ok(())
     }
 
-    fn clear(&mut self) -> Result<()> {
+    fn clear(&self) -> Result<()> {
         let scope = Scope::global();
         let scope = scope.with_namespace(self.namespace.clone());
         self.lock()?.retain(|k, _| !k.scope().starts_with(&scope));
         Ok(())
     }
 
-    fn move_scope(&mut self, from: &Scope, to: &Scope) -> Result<()> {
+    fn move_scope(&self, from: &Scope, to: &Scope) -> Result<()> {
         let from = from.with_namespace(self.namespace.clone());
         let to = to.with_namespace(self.namespace.clone());
 
