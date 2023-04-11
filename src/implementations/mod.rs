@@ -16,10 +16,10 @@ mod tests {
 
     use super::{disk::Disk, memory::Memory};
     #[cfg(feature = "postgres")]
-    use crate::implementations::postgres::{Executor, PgPool, Postgres};
+    use crate::implementations::postgres::{PgPool, Postgres};
     use crate::{key::Segment, Key, KeyValueStoreBackend, Scope};
 
-    fn test_store(mut store: impl KeyValueStoreBackend) {
+    fn test_store(store: impl KeyValueStoreBackend) {
         store
             .store(&"foo".parse().unwrap(), Value::from("bar"))
             .unwrap();
@@ -32,7 +32,7 @@ mod tests {
         store.clear().unwrap();
     }
 
-    fn test_has(mut store: impl KeyValueStoreBackend) {
+    fn test_has(store: impl KeyValueStoreBackend) {
         store
             .store(&"foo".parse().unwrap(), Value::from("bar"))
             .unwrap();
@@ -43,7 +43,7 @@ mod tests {
         store.clear().unwrap();
     }
 
-    fn test_has_scope(mut store: impl KeyValueStoreBackend) {
+    fn test_has_scope(store: impl KeyValueStoreBackend) {
         store
             .store(
                 &format!("boo{sep}bee{sep}bar", sep = Scope::SEPARATOR)
@@ -66,7 +66,7 @@ mod tests {
         store.clear().unwrap();
     }
 
-    fn test_list_keys(mut store: impl KeyValueStoreBackend) {
+    fn test_list_keys(store: impl KeyValueStoreBackend) {
         let keys: Vec<Key> = vec![
             "boo".parse().unwrap(),
             format!("fee{sep}bar", sep = Scope::SEPARATOR)
@@ -105,7 +105,7 @@ mod tests {
         store.clear().unwrap();
     }
 
-    fn test_list_scopes(mut store: impl KeyValueStoreBackend) {
+    fn test_list_scopes(store: impl KeyValueStoreBackend) {
         store
             .store(
                 &format!("foo{sep}keyname", sep = Scope::SEPARATOR)
@@ -149,7 +149,7 @@ mod tests {
         store.clear().unwrap();
     }
 
-    fn test_move_value(mut store: impl KeyValueStoreBackend) {
+    fn test_move_value(store: impl KeyValueStoreBackend) {
         store
             .store(&"foo".parse().unwrap(), Value::from("bar123"))
             .unwrap();
@@ -164,7 +164,7 @@ mod tests {
         store.clear().unwrap();
     }
 
-    fn test_delete(mut store: impl KeyValueStoreBackend) {
+    fn test_delete(store: impl KeyValueStoreBackend) {
         store
             .store(&"foo".parse().unwrap(), Value::from("bar"))
             .unwrap();
@@ -175,7 +175,7 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    fn test_delete_scope(mut store: impl KeyValueStoreBackend) {
+    fn test_delete_scope(store: impl KeyValueStoreBackend) {
         let keys: Vec<Key> = vec![
             "boo".parse().unwrap(),
             format!("mee{sep}bar", sep = Scope::SEPARATOR)
@@ -211,7 +211,7 @@ mod tests {
         store.clear().unwrap();
     }
 
-    fn test_clear(mut store: impl KeyValueStoreBackend) {
+    fn test_clear(store: impl KeyValueStoreBackend) {
         let keys: Vec<Key> = vec![
             "boo".parse().unwrap(),
             format!("fee{sep}bar", sep = Scope::SEPARATOR)
@@ -238,7 +238,7 @@ mod tests {
         store.clear().unwrap();
     }
 
-    fn test_move_scope(mut store: impl KeyValueStoreBackend) {
+    fn test_move_scope(store: impl KeyValueStoreBackend) {
         let keys: Vec<Key> = vec![
             "boo".parse().unwrap(),
             format!("mee{sep}bar", sep = Scope::SEPARATOR)
@@ -297,7 +297,7 @@ mod tests {
                     store
                         .transaction(
                             &key_scope,
-                            Box::new(move |s: &mut dyn KeyValueStoreBackend| {
+                            Box::new(move |s: &dyn KeyValueStoreBackend| {
                                 let current_counter = s.get(&"counter".parse().unwrap())?.unwrap();
                                 let mut c = counter_ref.lock().unwrap();
                                 *c = serde_json::from_value(current_counter).unwrap();
@@ -496,13 +496,13 @@ mod tests {
     fn postgres(namespace: Segment) -> Postgres<PgPool> {
         use std::str::FromStr;
 
-        let mut pg = Postgres::new(
+        let pg = Postgres::new(
             &url::Url::from_str("postgres://test@127.0.0.1/test").unwrap(),
             namespace,
         )
         .unwrap();
 
-        pg.exec_query("TRUNCATE table store", &[]).unwrap();
+        pg.truncate().unwrap();
 
         pg
     }
