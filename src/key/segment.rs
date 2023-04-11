@@ -6,6 +6,8 @@ use std::{
 
 use thiserror::Error;
 
+use crate::Scope;
+
 /// A nonempty string that does not start or end with whitespace and does not
 /// contain any instances of [`Scope::SEPARATOR`].
 ///
@@ -58,6 +60,8 @@ impl Segment {
             let bytes = value.as_bytes();
             if Self::leading_whitespace(bytes) || Self::trailing_whitespace(bytes) {
                 Err(ParseSegmentError::TrailingWhitespace)
+            } else if Self::contains_separator(bytes) {
+                Err(ParseSegmentError::ContainsSeparator)
             } else {
                 unsafe { Ok(Segment::from_str_unchecked(value)) }
             }
@@ -77,45 +81,30 @@ impl Segment {
     }
 
     const fn leading_whitespace(bytes: &[u8]) -> bool {
-        let c = bytes[0];
-        match c.leading_ones() {
-            0 => match c {
-                9 | // Tab
-                32 => true, // Space
-                _ => false,
-            },
-            2 | 4 => false,
-            3 => {
-                let c2 = bytes[1];
-                let c3 = bytes[2];
-                c == 0b11100010 && c2 == 0b10010000 && c3 == 0b10100100 // Newline
-            }
-            _ => unreachable!(),
+        match bytes[0] {
+            9 | 10 | 32 => true,
+            _ => false,
         }
     }
 
     const fn trailing_whitespace(bytes: &[u8]) -> bool {
-        let c = bytes[bytes.len() - 1];
-        match c.leading_ones() {
-            0 => match c {
-                9 | // Tab
-                32 => true, // Space
-                _ => false,
-            },
-            1 => {
-                let c2 = bytes[bytes.len() - 2];
-                match c2.leading_ones() {
-                    1 => {
-                        let c3 = bytes[bytes.len() - 3];
-                        c3 == 0b11100010 && c2 == 0b10010000 && c == 0b10100100 // Newline
-                    }
-                    2 => false,
-                    _ => unreachable!(),
-                }
-            }
-            2 | 4 => false,
-            _ => unreachable!(),
+        match bytes[bytes.len() - 1] {
+            9 | 10 | 32 => true,
+            _ => false,
         }
+    }
+
+    const fn contains_separator(bytes: &[u8]) -> bool {
+        let mut index = 0;
+
+        while index < bytes.len() {
+            if bytes[index] == Scope::SEPARATOR as u8 {
+                return true;
+            }
+            index += 1;
+        }
+
+        false
     }
 }
 
@@ -247,5 +236,10 @@ mod tests {
     #[test]
     fn test_containing_separator_fails() {
         assert!(Segment::parse("te/st").is_err());
+    }
+
+    #[test]
+    fn test_segment_succeeds() {
+        assert!(Segment::parse("test").is_ok())
     }
 }

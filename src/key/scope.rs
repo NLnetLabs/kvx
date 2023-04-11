@@ -16,7 +16,7 @@ pub struct Scope {
 }
 
 impl Scope {
-    pub const SEPARATOR: &'static str = "/";
+    pub const SEPARATOR: char = '/';
 
     pub fn from_segment(segment: impl Into<SegmentBuf>) -> Self {
         Scope::new(vec![segment.into()])
@@ -105,7 +105,7 @@ impl Display for Scope {
                 .iter()
                 .map(|segment| segment.as_str())
                 .collect::<Vec<_>>()
-                .join(Self::SEPARATOR)
+                .join(Self::SEPARATOR.encode_utf8(&mut [0; 4]))
         )
     }
 }
