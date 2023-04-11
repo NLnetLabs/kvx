@@ -6,7 +6,6 @@ use std::{
 pub use scope::Scope;
 pub use segment::{ParseSegmentError, Segment, SegmentBuf};
 
-mod namespace;
 mod scope;
 mod segment;
 
