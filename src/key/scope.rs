@@ -18,12 +18,12 @@ pub struct Scope {
 impl Scope {
     pub const SEPARATOR: &'static str = "/";
 
-    pub fn global() -> Self {
-        Scope::new(Vec::new())
+    pub fn from_segment(segment: Segment) -> Self {
+        Scope::new(vec![segment])
     }
 
-    pub fn single(segment: Segment) -> Self {
-        Scope::new(vec![segment])
+    pub fn global() -> Self {
+        Scope::new(Vec::new())
     }
 
     pub fn new(segments: Vec<Segment>) -> Self {
