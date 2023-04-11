@@ -55,7 +55,12 @@ impl Segment {
         if value.is_empty() {
             Err(ParseSegmentError::Empty)
         } else {
-            unsafe { Ok(Segment::from_str_unchecked(value)) }
+            let bytes = value.as_bytes();
+            if Self::leading_whitespace(bytes) || Self::trailing_whitespace(bytes) {
+                Err(ParseSegmentError::TrailingWhitespace)
+            } else {
+                unsafe { Ok(Segment::from_str_unchecked(value)) }
+            }
         }
     }
 
@@ -69,6 +74,48 @@ impl Segment {
 
     pub const unsafe fn from_str_unchecked(s: &str) -> &Self {
         &*(s as *const _ as *const Self)
+    }
+
+    const fn leading_whitespace(bytes: &[u8]) -> bool {
+        let c = bytes[0];
+        match c.leading_ones() {
+            0 => match c {
+                9 | // Tab
+                32 => true, // Space
+                _ => false,
+            },
+            2 | 4 => false,
+            3 => {
+                let c2 = bytes[1];
+                let c3 = bytes[2];
+                c == 0b11100010 && c2 == 0b10010000 && c3 == 0b10100100 // Newline
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    const fn trailing_whitespace(bytes: &[u8]) -> bool {
+        let c = bytes[bytes.len() - 1];
+        match c.leading_ones() {
+            0 => match c {
+                9 | // Tab
+                32 => true, // Space
+                _ => false,
+            },
+            1 => {
+                let c2 = bytes[bytes.len() - 2];
+                match c2.leading_ones() {
+                    1 => {
+                        let c3 = bytes[bytes.len() - 3];
+                        c3 == 0b11100010 && c2 == 0b10010000 && c == 0b10100100 // Newline
+                    }
+                    2 => false,
+                    _ => unreachable!(),
+                }
+            }
+            2 | 4 => false,
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -160,5 +207,45 @@ mod postgres_impls {
         fn accepts(ty: &postgres_types::Type) -> bool {
             String::accepts(ty)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Segment;
+
+    #[test]
+    fn test_trailing_space_fails() {
+        assert!(Segment::parse("test ").is_err());
+    }
+
+    #[test]
+    fn test_trailing_tab_fails() {
+        assert!(Segment::parse("test\t").is_err());
+    }
+
+    #[test]
+    fn test_trailing_newline_fails() {
+        assert!(Segment::parse("test\n").is_err());
+    }
+
+    #[test]
+    fn test_leading_space_fails() {
+        assert!(Segment::parse(" test").is_err());
+    }
+
+    #[test]
+    fn test_leading_tab_fails() {
+        assert!(Segment::parse("\ttest").is_err());
+    }
+
+    #[test]
+    fn test_leading_newline_fails() {
+        assert!(Segment::parse("\ntest").is_err());
+    }
+
+    #[test]
+    fn test_containing_separator_fails() {
+        assert!(Segment::parse("te/st").is_err());
     }
 }
