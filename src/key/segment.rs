@@ -13,7 +13,7 @@ use crate::Scope;
 pub struct Segment(String);
 
 impl Segment {
-    pub fn new(value: &str) -> Result<Self, ParseSegmentError> {
+    pub fn parse(value: &str) -> Result<Self, ParseSegmentError> {
         value.parse()
     }
 
@@ -80,7 +80,7 @@ impl<'a> postgres::types::FromSql<'a> for Segment {
         raw: &'a [u8],
     ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
         let s = String::from_sql(ty, raw)?;
-        Ok(Segment::new(&s)?)
+        Ok(Segment::parse(&s)?)
     }
 
     fn accepts(ty: &postgres_types::Type) -> bool {
