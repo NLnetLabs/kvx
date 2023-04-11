@@ -16,7 +16,7 @@ mod tests {
 
     use super::{disk::Disk, memory::Memory};
     #[cfg(feature = "postgres")]
-    use crate::implementations::postgres::{Executor, PgPool, Postgres};
+    use crate::implementations::postgres::{PgPool, Postgres};
     use crate::{key::Segment, Key, KeyValueStoreBackend, Scope};
 
     fn test_store(store: impl KeyValueStoreBackend) {
@@ -496,13 +496,13 @@ mod tests {
     fn postgres(namespace: Segment) -> Postgres<PgPool> {
         use std::str::FromStr;
 
-        let mut pg = Postgres::new(
+        let pg = Postgres::new(
             &url::Url::from_str("postgres://test@127.0.0.1/test").unwrap(),
             namespace,
         )
         .unwrap();
 
-        pg.exec_query("TRUNCATE table store", &[]).unwrap();
+        pg.truncate().unwrap();
 
         pg
     }

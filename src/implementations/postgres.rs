@@ -1,6 +1,6 @@
 use std::{
+    cell::{RefCell, RefMut},
     fmt::Debug,
-    sync::{Mutex, MutexGuard},
 };
 
 use postgres::{NoTls, Row, ToStatement, Transaction};
@@ -36,6 +36,15 @@ impl Postgres<PgPool> {
             executor: pool,
         })
     }
+
+    #[cfg(test)]
+    pub(crate) fn truncate(&self) -> Result<()> {
+        self.executor
+            .executor()?
+            .exec_query("TRUNCATE table store", &[])?;
+
+        Ok(())
+    }
 }
 
 impl<E> KeyValueStoreBackend for Postgres<E>
@@ -52,17 +61,17 @@ where
 
             let mut postgres = Postgres {
                 namespace: self.namespace.clone(),
-                executor: Mutex::new(transaction),
+                executor: RefCell::new(transaction),
             };
 
             if let Err(e) = callback(&mut postgres) {
-                postgres.executor.into_inner().unwrap().rollback()?;
+                postgres.executor.into_inner().rollback()?;
 
                 if i == TRIES {
                     Err(e)?;
                 }
             } else {
-                postgres.executor.into_inner().unwrap().commit()?;
+                postgres.executor.into_inner().commit()?;
                 break;
             }
         }
@@ -235,11 +244,11 @@ impl HasExecutor for PgPool {
     }
 }
 
-impl<'b> HasExecutor for Mutex<Transaction<'b>> {
-    type Executor<'a> = MutexGuard<'a, Transaction<'b>> where Self: 'a;
+impl<'b> HasExecutor for RefCell<Transaction<'b>> {
+    type Executor<'a> = RefMut<'a, Transaction<'b>> where Self: 'a;
 
     fn executor(&self) -> Result<Self::Executor<'_>> {
-        Ok(self.lock().unwrap())
+        Ok(self.borrow_mut())
     }
 }
 
@@ -261,37 +270,6 @@ pub trait Executor {
     fn exec_execute<T>(&mut self, query: &T, params: &[&(dyn ToSql + Sync)]) -> Result<u64>
     where
         T: ?Sized + ToStatement;
-}
-
-impl<E: HasExecutor> Executor for Postgres<E> {
-    fn exec_transaction(&mut self) -> Result<Transaction<'_>> {
-        todo!()
-    }
-
-    fn exec_query<T>(&mut self, query: &T, params: &[&(dyn ToSql + Sync)]) -> Result<Vec<Row>>
-    where
-        T: ?Sized + ToStatement,
-    {
-        self.executor.executor()?.exec_query(query, params)
-    }
-
-    fn exec_query_opt<T>(
-        &mut self,
-        query: &T,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> Result<Option<Row>>
-    where
-        T: ?Sized + ToStatement,
-    {
-        self.executor.executor()?.exec_query_opt(query, params)
-    }
-
-    fn exec_execute<T>(&mut self, query: &T, params: &[&(dyn ToSql + Sync)]) -> Result<u64>
-    where
-        T: ?Sized + ToStatement,
-    {
-        self.executor.executor()?.exec_execute(query, params)
-    }
 }
 
 impl Executor for PooledConnection<PostgresClient> {
@@ -325,7 +303,7 @@ impl Executor for PooledConnection<PostgresClient> {
     }
 }
 
-impl Executor for MutexGuard<'_, Transaction<'_>> {
+impl Executor for RefMut<'_, Transaction<'_>> {
     fn exec_transaction(&mut self) -> Result<Transaction<'_>> {
         Ok(self.transaction()?)
     }
