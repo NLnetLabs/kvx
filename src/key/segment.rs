@@ -3,6 +3,7 @@ use std::{
     ops::Deref,
     str::FromStr,
 };
+use std::borrow::Borrow;
 
 use thiserror::Error;
 
@@ -15,6 +16,18 @@ use crate::Scope;
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct SegmentBuf(String);
+
+impl AsRef<Segment> for SegmentBuf {
+    fn as_ref(&self) -> &Segment {
+        &self
+    }
+}
+
+impl Borrow<Segment> for SegmentBuf {
+    fn borrow(&self) -> &Segment {
+        &self
+    }
+}
 
 impl Deref for SegmentBuf {
     type Target = Segment;
@@ -34,13 +47,13 @@ impl FromStr for SegmentBuf {
     type Err = ParseSegmentError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Segment::parse(s)?.to_segment_buf())
+        Ok(Segment::parse(s)?.to_owned())
     }
 }
 
 impl From<&Segment> for SegmentBuf {
     fn from(value: &Segment) -> Self {
-        value.to_segment_buf()
+        value.to_owned()
     }
 }
 
@@ -70,10 +83,6 @@ impl Segment {
 
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-
-    pub fn to_segment_buf(&self) -> SegmentBuf {
-        SegmentBuf(self.0.to_owned())
     }
 
     pub const unsafe fn from_str_unchecked(s: &str) -> &Self {
@@ -111,6 +120,14 @@ impl Segment {
 impl Display for Segment {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &self.0)
+    }
+}
+
+impl ToOwned for Segment {
+    type Owned = SegmentBuf;
+
+    fn to_owned(&self) -> Self::Owned {
+        SegmentBuf(self.0.to_owned())
     }
 }
 
@@ -190,7 +207,7 @@ mod postgres_impls {
             raw: &'a [u8],
         ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
             let value = String::from_sql(ty, raw)?;
-            Ok(Segment::parse(&value)?.to_segment_buf())
+            Ok(Segment::parse(&value)?.to_owned())
         }
 
         fn accepts(ty: &postgres_types::Type) -> bool {
