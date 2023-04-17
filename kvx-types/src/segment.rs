@@ -87,7 +87,7 @@ impl Segment {
 
     /// # Safety
     ///
-    /// This function shoulf only be called from the kvx-mcros crate - do not
+    /// This function should only be called from the kvx-macros crate - do not
     /// use directly
     pub const unsafe fn from_str_unchecked(s: &str) -> &Self {
         &*(s as *const _ as *const Self)
@@ -216,7 +216,12 @@ mod postgres_impls {
 
 #[cfg(test)]
 mod tests {
-    use super::Segment;
+    use super::{Scope, Segment};
+
+    #[test]
+    fn test_trailing_separator_fails() {
+        assert!(Segment::parse(&format!("test{}", Scope::SEPARATOR)).is_err());
+    }
 
     #[test]
     fn test_trailing_space_fails() {
@@ -231,6 +236,11 @@ mod tests {
     #[test]
     fn test_trailing_newline_fails() {
         assert!(Segment::parse("test\n").is_err());
+    }
+
+    #[test]
+    fn test_leading_separator_fails() {
+        assert!(Segment::parse(&format!("{}test", Scope::SEPARATOR)).is_err());
     }
 
     #[test]
@@ -250,7 +260,22 @@ mod tests {
 
     #[test]
     fn test_containing_separator_fails() {
-        assert!(Segment::parse("te/st").is_err());
+        assert!(Segment::parse(&format!("te{}st", Scope::SEPARATOR)).is_err());
+    }
+
+    #[test]
+    fn test_containing_space_succeeds() {
+        assert!(Segment::parse("te st").is_ok());
+    }
+
+    #[test]
+    fn test_containing_tab_succeeds() {
+        assert!(Segment::parse("te\tst").is_ok());
+    }
+
+    #[test]
+    fn test_containing_newline_succeeds() {
+        assert!(Segment::parse("te\nst").is_ok());
     }
 
     #[test]
