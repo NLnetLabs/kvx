@@ -1,15 +1,14 @@
-use implementations::{disk::Disk, memory::Memory};
-use serde_json::Value;
 use std::fmt::Debug;
-use url::Url;
 
-use crate::key::SegmentBuf;
-
-pub use crate::error::Error;
+use implementations::{disk::Disk, memory::Memory};
 pub use key::{Key, Scope, Segment};
-
 #[cfg(feature = "queue")]
 pub use queue::{Queue, Task, TaskState};
+use serde_json::Value;
+use url::Url;
+
+pub use crate::error::Error;
+use crate::key::SegmentBuf;
 
 mod error;
 mod implementations;

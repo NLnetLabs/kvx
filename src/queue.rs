@@ -138,11 +138,13 @@ impl Queue for KeyValueStore {
 
 #[cfg(test)]
 mod tests {
+    use std::{str::FromStr, thread};
+
+    use serde_json::json;
+    use url::Url;
+
     use super::{get_ts, Queue, Task, TaskState};
     use crate::{key::SegmentBuf, KeyValueStore, ReadStore, Scope, WriteStore};
-    use serde_json::json;
-    use std::{str::FromStr, thread};
-    use url::Url;
 
     fn get_queue_store() -> KeyValueStore {
         let storage_url = Url::parse("local://data").unwrap();
