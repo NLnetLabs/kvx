@@ -1,9 +1,9 @@
 use std::{
+    borrow::Borrow,
     fmt::{Display, Formatter},
     ops::Deref,
     str::FromStr,
 };
-use std::borrow::Borrow;
 
 use thiserror::Error;
 
@@ -19,13 +19,13 @@ pub struct SegmentBuf(String);
 
 impl AsRef<Segment> for SegmentBuf {
     fn as_ref(&self) -> &Segment {
-        &self
+        self
     }
 }
 
 impl Borrow<Segment> for SegmentBuf {
     fn borrow(&self) -> &Segment {
-        &self
+        self
     }
 }
 
@@ -85,22 +85,20 @@ impl Segment {
         &self.0
     }
 
+    /// # Safety
+    ///
+    /// This function shoulf only be called from the kvx-mcros crate - do not
+    /// use directly
     pub const unsafe fn from_str_unchecked(s: &str) -> &Self {
         &*(s as *const _ as *const Self)
     }
 
     const fn leading_whitespace(bytes: &[u8]) -> bool {
-        match bytes[0] {
-            9 | 10 | 32 => true,
-            _ => false,
-        }
+        matches!(bytes[0], 9 | 10 | 32)
     }
 
     const fn trailing_whitespace(bytes: &[u8]) -> bool {
-        match bytes[bytes.len() - 1] {
-            9 | 10 | 32 => true,
-            _ => false,
-        }
+        matches!(bytes[bytes.len() - 1], 9 | 10 | 32)
     }
 
     const fn contains_separator(bytes: &[u8]) -> bool {

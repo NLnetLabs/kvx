@@ -224,7 +224,7 @@ impl WriteStore for Memory {
             .iter()
             .map(|(k, v)| {
                 if k.scope() == &from {
-                    (Key::new_scoped(to.clone(), k.name().clone()), v.clone())
+                    (Key::new_scoped(to.clone(), k.name()), v.clone())
                 } else {
                     (k.clone(), v.clone())
                 }

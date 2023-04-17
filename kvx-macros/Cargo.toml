@@ -1,13 +1,13 @@
 [package]
 name = "kvx_macros"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 
 [lib]
 proc-macro = true
 
 [dependencies]
-kvx = { path = "..", version = "0.1.0" }
+kvx = { path = "..", version = "0.3.0" }
 proc-macro-error = "1.0.4"
 proc-macro2 = "1.0.56"
 quote = "1.0.26"
