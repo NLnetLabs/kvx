@@ -259,9 +259,7 @@ impl FileLock {
     }
 
     pub fn unlock(&self) -> Result<()> {
-        println!(r#"lockfile deleting now "{}""#, self.lock_path.display());
         fs::remove_file(&self.lock_path)?;
-        println!(r#"lockfile deleted at "{}""#, self.lock_path.display());
         Ok(())
     }
 }
