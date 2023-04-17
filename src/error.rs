@@ -27,6 +27,9 @@ pub enum Error {
     #[error("invalid path {0}")]
     InvalidPath(String),
 
+    #[error("invalid key")]
+    InvalidKey,
+
     #[error("unknown scheme {0}")]
     UnknownScheme(String),
 

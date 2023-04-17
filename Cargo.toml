@@ -16,7 +16,8 @@ exclude = [
 ]
 
 [features]
-default = ["postgres"]
+default = ["postgres", "queue"]
+queue = []
 postgres = ["dep:postgres", "dep:r2d2_postgres", "dep:postgres-types"]
 
 [dependencies]

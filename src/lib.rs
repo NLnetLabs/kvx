@@ -3,6 +3,8 @@ use std::fmt::Debug;
 use implementations::{disk::Disk, memory::Memory};
 pub use kvx_macros::segment;
 pub use kvx_types::{Key, Scope, Segment, SegmentBuf};
+#[cfg(feature = "queue")]
+pub use queue::{Queue, Task, TaskState};
 use serde_json::Value;
 use url::Url;
 
@@ -10,8 +12,10 @@ pub use crate::error::Error;
 
 mod error;
 mod implementations;
+#[cfg(feature = "queue")]
+mod queue;
 
-type Result<T, E = Error> = std::result::Result<T, E>;
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 pub trait ReadStore {
     fn has(&self, key: &Key) -> Result<bool>;

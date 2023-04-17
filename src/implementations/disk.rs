@@ -43,7 +43,8 @@ impl ReadStore for Disk {
     fn get(&self, key: &Key) -> Result<Option<Value>> {
         let path = key.as_path(&self.root);
         if path.exists() {
-            let value = fs::read_to_string(key.as_path(&self.root))?;
+            let value =
+                fs::read_to_string(key.as_path(&self.root)).map_err(|_| Error::UnknownKey)?;
             let value: Value = serde_json::from_str(&value)?;
             Ok(Some(value))
         } else {
