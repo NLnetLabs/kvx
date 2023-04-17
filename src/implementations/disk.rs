@@ -92,7 +92,7 @@ impl WriteStore for Disk {
 
         let dir = to.scope().as_path(&self.root);
         if !dir.try_exists().unwrap_or_default() {
-            fs::create_dir_all(dir.clone())?;
+            fs::create_dir_all(dir)?;
         }
 
         fs::rename(&from_path, to_path)?;
