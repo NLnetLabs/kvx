@@ -161,6 +161,35 @@ mod tests {
 
         assert_eq!(result, Some(Value::from("bar123")));
 
+        store
+            .store(
+                &format!("foo{sep}bar", sep = Scope::SEPARATOR)
+                    .parse()
+                    .unwrap(),
+                Value::from("bar123"),
+            )
+            .unwrap();
+        store
+            .move_value(
+                &format!("foo{sep}bar", sep = Scope::SEPARATOR)
+                    .parse()
+                    .unwrap(),
+                &format!("fee{sep}bor", sep = Scope::SEPARATOR)
+                    .parse()
+                    .unwrap(),
+            )
+            .unwrap();
+
+        let result = store
+            .get(
+                &format!("fee{sep}bor", sep = Scope::SEPARATOR)
+                    .parse()
+                    .unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(result, Some(Value::from("bar123")));
+
         store.clear().unwrap();
     }
 

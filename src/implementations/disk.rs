@@ -89,6 +89,11 @@ impl WriteStore for Disk {
         let from_path = from.as_path(&self.root);
         let to_path = to.as_path(&self.root);
 
+        let dir = to.scope().as_path(&self.root);
+        if !dir.try_exists().unwrap_or_default() {
+            fs::create_dir_all(dir)?;
+        }
+
         fs::rename(&from_path, to_path)?;
         remove_empty_parent_dirs(from_path.parent().ok_or(Error::Unknown)?);
 
@@ -98,6 +103,10 @@ impl WriteStore for Disk {
     fn move_scope(&self, from: &Scope, to: &Scope) -> Result<()> {
         let from_path = from.as_path(&self.root);
         let to_path = to.as_path(&self.root);
+
+        if !to_path.try_exists().unwrap_or_default() {
+            fs::create_dir_all(to_path.clone())?;
+        }
 
         fs::rename(from_path.as_path(), to_path.as_path())?;
         remove_empty_parent_dirs(from_path);
