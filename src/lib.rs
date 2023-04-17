@@ -1,18 +1,23 @@
-use std::fmt::Debug;
-
 use implementations::{disk::Disk, memory::Memory};
-pub use key::{Key, Scope, Segment};
 use serde_json::Value;
+use std::fmt::Debug;
 use url::Url;
 
-pub use crate::error::Error;
 use crate::key::SegmentBuf;
+
+pub use crate::error::Error;
+pub use key::{Key, Scope, Segment};
+
+#[cfg(feature = "queue")]
+pub use queue::{Queue, Task, TaskState};
 
 mod error;
 mod implementations;
 mod key;
+#[cfg(feature = "queue")]
+mod queue;
 
-type Result<T, E = Error> = std::result::Result<T, E>;
+pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 pub trait ReadStore {
     fn has(&self, key: &Key) -> Result<bool>;

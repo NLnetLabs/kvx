@@ -43,7 +43,8 @@ impl ReadStore for Disk {
     fn get(&self, key: &Key) -> Result<Option<Value>> {
         let path = key.as_path(&self.root);
         if path.exists() {
-            let value = fs::read_to_string(key.as_path(&self.root))?;
+            let value =
+                fs::read_to_string(key.as_path(&self.root)).map_err(|_| Error::UnknownKey)?;
             let value: Value = serde_json::from_str(&value)?;
             Ok(Some(value))
         } else {
@@ -91,7 +92,7 @@ impl WriteStore for Disk {
 
         let dir = to.scope().as_path(&self.root);
         if !dir.try_exists().unwrap_or_default() {
-            fs::create_dir_all(dir)?;
+            fs::create_dir_all(dir.clone())?;
         }
 
         fs::rename(&from_path, to_path)?;
@@ -143,12 +144,10 @@ impl WriteStore for Disk {
 
 impl KeyValueStoreBackend for Disk {
     fn transaction(&self, scope: &Scope, callback: TransactionCallback) -> Result<()> {
-        let lock = FileLock::lock(scope.as_path(&self.root))?;
+        let _lock = FileLock::lock(scope.as_path(&self.root))?;
 
         let mut store = self.clone();
         callback(&mut store)?;
-
-        lock.unlock()?;
 
         Ok(())
     }
