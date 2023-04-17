@@ -7,7 +7,7 @@ pub(crate) mod postgres;
 #[cfg(test)]
 mod tests {
     use std::{
-        fs,
+        fs, iter,
         sync::{Arc, Mutex},
     };
 
@@ -19,83 +19,87 @@ mod tests {
     use crate::implementations::postgres::{PgPool, Postgres};
     use crate::{Key, KeyValueStoreBackend, Scope, SegmentBuf};
 
+    fn random_value(length: usize) -> Value {
+        Value::from(
+            rand::thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(length)
+                .map(char::from)
+                .collect::<String>(),
+        )
+    }
+
+    fn random_segment() -> SegmentBuf {
+        rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(8)
+            .map(char::from)
+            .collect::<String>()
+            .parse()
+            .unwrap()
+    }
+
+    fn random_scope(depth: usize) -> Scope {
+        Scope::new(iter::repeat_with(random_segment).take(depth).collect())
+    }
+
+    fn random_key(depth: usize) -> Key {
+        Key::new_scoped(random_scope(depth), random_segment())
+    }
+
     fn test_store(store: impl KeyValueStoreBackend) {
-        store
-            .store(&"foo".parse().unwrap(), Value::from("bar"))
-            .unwrap();
+        let key = random_key(1);
+        let value = random_value(8);
+        store.store(&key, value.clone()).unwrap();
 
-        let result = store.get(&"foo".parse().unwrap()).unwrap();
-        let expected = Some(Value::from("bar"));
+        let result = store.get(&key).unwrap();
 
-        assert_eq!(result, expected);
+        assert_eq!(result, Some(value));
 
         store.clear().unwrap();
     }
 
     fn test_has(store: impl KeyValueStoreBackend) {
-        store
-            .store(&"foo".parse().unwrap(), Value::from("bar"))
-            .unwrap();
+        let key = random_key(1);
+        let value = random_value(8);
+        store.store(&key, value).unwrap();
 
-        assert!(store.has(&"foo".parse().unwrap()).unwrap());
-        assert!(!store.has(&"faa".parse().unwrap()).unwrap());
+        assert!(store.has(&key).unwrap());
+        assert!(!store.has(&random_key(1)).unwrap());
 
         store.clear().unwrap();
     }
 
     fn test_has_scope(store: impl KeyValueStoreBackend) {
-        store
-            .store(
-                &format!("boo{sep}bee{sep}bar", sep = Scope::SEPARATOR)
-                    .parse()
-                    .unwrap(),
-                Value::from("bar"),
-            )
-            .unwrap();
+        let scope = random_scope(2);
+        let key = Key::new_scoped(scope.clone(), random_segment());
+        let value = random_value(8);
 
-        assert!(store.has_scope(&"boo".parse().unwrap()).unwrap());
-        assert!(store
-            .has_scope(
-                &format!("boo{sep}bee", sep = Scope::SEPARATOR)
-                    .parse()
-                    .unwrap()
-            )
-            .unwrap());
-        assert!(!store.has_scope(&"baa".parse().unwrap()).unwrap());
+        store.store(&key, value).unwrap();
+
+        for s in scope.sub_scopes() {
+            assert!(store.has_scope(&s).unwrap());
+        }
+        assert!(!store.has_scope(&random_scope(1)).unwrap());
 
         store.clear().unwrap();
     }
 
     fn test_list_keys(store: impl KeyValueStoreBackend) {
+        let ns = random_segment();
         let keys: Vec<Key> = vec![
-            "boo".parse().unwrap(),
-            format!("fee{sep}bar", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-            format!("fee{sep}foo", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-            format!("fee{sep}foo{sep}mee", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
+            random_key(1),
+            random_key(1).with_namespace(ns.clone()),
+            random_key(1).with_namespace(ns.clone()),
+            random_key(2).with_namespace(ns.clone()),
         ];
 
-        for key in keys.into_iter() {
-            store.store(&key, Value::from("bar")).unwrap();
+        for key in keys.iter() {
+            store.store(key, random_value(8)).unwrap();
         }
 
-        let mut result = store.list_keys(&"fee".parse().unwrap()).unwrap();
-        let mut expected: Vec<Key> = vec![
-            format!("fee{sep}bar", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-            format!("fee{sep}foo", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-            format!("fee{sep}foo{sep}mee", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-        ];
+        let mut result = store.list_keys(&Scope::from_segment(ns)).unwrap();
+        let mut expected: Vec<Key> = keys[1..].to_vec();
 
         result.sort();
         expected.sort();
@@ -106,40 +110,27 @@ mod tests {
     }
 
     fn test_list_scopes(store: impl KeyValueStoreBackend) {
+        let name = random_segment();
+        let scope = random_scope(1);
+        let scope1 = random_scope(2);
+        let scope2 = random_scope(1);
+        let value = random_value(8);
         store
-            .store(
-                &format!("foo{sep}keyname", sep = Scope::SEPARATOR)
-                    .parse()
-                    .unwrap(),
-                Value::from("bar"),
-            )
+            .store(&Key::new_scoped(scope.clone(), name.clone()), value.clone())
             .unwrap();
         store
             .store(
-                &format!("boo{sep}bee{sep}keyname", sep = Scope::SEPARATOR)
-                    .parse()
-                    .unwrap(),
-                Value::from("bar"),
+                &Key::new_scoped(scope1.clone(), name.clone()),
+                value.clone(),
             )
             .unwrap();
         store
-            .store(
-                &format!("woo{sep}keyname", sep = Scope::SEPARATOR)
-                    .parse()
-                    .unwrap(),
-                Value::from("bar"),
-            )
+            .store(&Key::new_scoped(scope2.clone(), name), value)
             .unwrap();
 
         let mut result = store.list_scopes().unwrap();
-        let mut expected: Vec<Scope> = vec![
-            "foo".parse().unwrap(),
-            "boo".parse().unwrap(),
-            format!("boo{sep}bee", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-            "woo".parse().unwrap(),
-        ];
+        let mut expected =
+            vec![scope.sub_scopes(), scope1.sub_scopes(), scope2.sub_scopes()].concat();
 
         result.sort();
         expected.sort();
@@ -150,87 +141,61 @@ mod tests {
     }
 
     fn test_move_value(store: impl KeyValueStoreBackend) {
-        store
-            .store(&"foo".parse().unwrap(), Value::from("bar123"))
-            .unwrap();
-        store
-            .move_value(&"foo".parse().unwrap(), &"fee".parse().unwrap())
-            .unwrap();
+        let from = random_key(1);
+        let to = random_key(1);
+        let value = random_value(8);
 
-        let result = store.get(&"fee".parse().unwrap()).unwrap();
+        store.store(&from, value.clone()).unwrap();
+        store.move_value(&from, &to).unwrap();
 
-        assert_eq!(result, Some(Value::from("bar123")));
+        let result = store.get(&to).unwrap();
 
-        store
-            .store(
-                &format!("foo{sep}bar", sep = Scope::SEPARATOR)
-                    .parse()
-                    .unwrap(),
-                Value::from("bar123"),
-            )
-            .unwrap();
-        store
-            .move_value(
-                &format!("foo{sep}bar", sep = Scope::SEPARATOR)
-                    .parse()
-                    .unwrap(),
-                &format!("fee{sep}bor", sep = Scope::SEPARATOR)
-                    .parse()
-                    .unwrap(),
-            )
-            .unwrap();
+        assert_eq!(result, Some(value));
 
-        let result = store
-            .get(
-                &format!("fee{sep}bor", sep = Scope::SEPARATOR)
-                    .parse()
-                    .unwrap(),
-            )
-            .unwrap();
+        // test deeper scope
+        let from = random_key(3);
+        let to = random_key(2);
+        let value = random_value(8);
 
-        assert_eq!(result, Some(Value::from("bar123")));
+        store.store(&from, value.clone()).unwrap();
+        store.move_value(&from, &to).unwrap();
+
+        let result = store.get(&to).unwrap();
+
+        assert_eq!(result, Some(value));
 
         store.clear().unwrap();
     }
 
     fn test_delete(store: impl KeyValueStoreBackend) {
-        store
-            .store(&"foo".parse().unwrap(), Value::from("bar"))
-            .unwrap();
-        store.delete(&"foo".parse().unwrap()).unwrap();
+        let key = random_key(1);
+        store.store(&key, random_value(8)).unwrap();
+        store.delete(&key).unwrap();
 
-        let result = store.get(&"foo".parse().unwrap()).unwrap();
+        let result = store.get(&key).unwrap();
 
         assert_eq!(result, None);
     }
 
     fn test_delete_scope(store: impl KeyValueStoreBackend) {
+        let key = random_key(0);
+        let scope = random_scope(1);
+        let scope2 = random_scope(1);
         let keys: Vec<Key> = vec![
-            "boo".parse().unwrap(),
-            format!("mee{sep}bar", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-            format!("mee{sep}foo", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-            format!("fee{sep}foo", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
+            key,
+            Key::new_scoped(scope.clone(), random_segment()),
+            Key::new_scoped(scope.clone(), random_segment()),
+            Key::new_scoped(scope2, random_segment()),
         ];
 
-        for key in keys.into_iter() {
-            store.store(&key, Value::from("bar")).unwrap();
+        for key in keys.iter() {
+            store.store(key, random_value(8)).unwrap();
         }
 
-        store.delete_scope(&"mee".parse().unwrap()).unwrap();
+        store.delete_scope(&scope).unwrap();
 
         let mut result = store.list_keys(&Scope::global()).unwrap();
-        let mut expected: Vec<Key> = vec![
-            "boo".parse().unwrap(),
-            format!("fee{sep}foo", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-        ];
+        let mut expected: Vec<Key> = vec![keys[0].clone(), keys[3].clone()];
 
         result.sort();
         expected.sort();
@@ -241,21 +206,8 @@ mod tests {
     }
 
     fn test_clear(store: impl KeyValueStoreBackend) {
-        let keys: Vec<Key> = vec![
-            "boo".parse().unwrap(),
-            format!("fee{sep}bar", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-            format!("fee{sep}foo", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-            format!("fee{sep}foo{sep}mee", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-        ];
-
-        for key in keys.into_iter() {
-            store.store(&key, Value::from("bar")).unwrap();
+        for i in 1..=4 {
+            store.store(&random_key(i), random_value(8)).unwrap();
         }
 
         store.clear().unwrap();
@@ -268,39 +220,31 @@ mod tests {
     }
 
     fn test_move_scope(store: impl KeyValueStoreBackend) {
+        let key = random_key(0);
+        let scope = random_scope(1);
+        let scope2 = random_scope(1);
+        let segment = random_segment();
+        let segment2 = random_segment();
         let keys: Vec<Key> = vec![
-            "boo".parse().unwrap(),
-            format!("mee{sep}bar", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-            format!("mee{sep}foo", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-            format!("fee{sep}foo", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
+            key.clone(),
+            Key::new_scoped(scope.clone(), segment.clone()),
+            Key::new_scoped(scope.clone(), segment2.clone()),
+            Key::new_scoped(scope2.clone(), segment2.clone()),
         ];
 
         for key in keys.into_iter() {
-            store.store(&key, Value::from("bar")).unwrap();
+            store.store(&key, random_value(8)).unwrap();
         }
 
-        store
-            .move_scope(&"mee".parse().unwrap(), &"boo".parse().unwrap())
-            .unwrap();
+        let scope3 = random_scope(1);
+        store.move_scope(&scope, &scope3).unwrap();
 
         let mut result = store.list_keys(&Scope::global()).unwrap();
         let mut expected: Vec<Key> = vec![
-            "boo".parse().unwrap(),
-            format!("boo{sep}bar", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-            format!("boo{sep}foo", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
-            format!("fee{sep}foo", sep = Scope::SEPARATOR)
-                .parse()
-                .unwrap(),
+            key,
+            Key::new_scoped(scope3.clone(), segment),
+            Key::new_scoped(scope3, segment2.clone()),
+            Key::new_scoped(scope2, segment2),
         ];
 
         result.sort();
@@ -316,47 +260,55 @@ mod tests {
             .store(&"counter".parse().unwrap(), Value::from(0))
             .unwrap();
 
-        std::thread::scope(|scope| {
+        let transaction_scope = random_scope(1);
+        std::thread::scope(|s| {
+            let transaction_scope = transaction_scope.clone();
             stores.iter_mut().enumerate().for_each(|(index, store)| {
-                scope.spawn(move || {
+                let transaction_scope = transaction_scope.clone();
+                s.spawn(move || {
                     let counter = Arc::new(Mutex::new(0));
                     let counter_ref = counter.clone();
-                    let key_scope: Scope = "foo".parse().unwrap();
+
+                    let scope_clone = transaction_scope.clone();
 
                     store
                         .transaction(
-                            &key_scope,
-                            Box::new(move |s: &dyn KeyValueStoreBackend| {
-                                let current_counter = s.get(&"counter".parse().unwrap())?.unwrap();
+                            &transaction_scope.clone(),
+                            Box::new(move |t: &dyn KeyValueStoreBackend| {
+                                let current_counter = t.get(&"counter".parse().unwrap())?.unwrap();
                                 let mut c = counter_ref.lock().unwrap();
                                 *c = serde_json::from_value(current_counter).unwrap();
 
-                                s.store(
-                                    &format!("foo{}key_{index}_{c}_1", Scope::SEPARATOR)
-                                        .parse()
-                                        .unwrap(),
-                                    Value::from(format!("value_{c}_1")),
+                                t.store(
+                                    &Key::new_scoped(
+                                        transaction_scope.clone(),
+                                        format!("key_{index}_1_{c}").parse::<SegmentBuf>().unwrap(),
+                                    ),
+                                    Value::from(format!("value_1_{c}")),
                                 )?;
-                                s.store(
-                                    &format!("foo{}key_{index}_{c}_2", Scope::SEPARATOR)
-                                        .parse()
-                                        .unwrap(),
-                                    Value::from(format!("value_{c}_2")),
+                                t.store(
+                                    &Key::new_scoped(
+                                        transaction_scope.clone(),
+                                        format!("key_{index}_2_{c}").parse::<SegmentBuf>().unwrap(),
+                                    ),
+                                    Value::from(format!("value_2_{c}")),
                                 )?;
-                                s.store(
-                                    &format!("foo{}key_{index}_{c}_3", Scope::SEPARATOR)
-                                        .parse()
-                                        .unwrap(),
-                                    Value::from(format!("value_{c}_3")),
+                                t.store(
+                                    &Key::new_scoped(
+                                        transaction_scope.clone(),
+                                        format!("key_{index}_3_{c}").parse::<SegmentBuf>().unwrap(),
+                                    ),
+                                    Value::from(format!("value_3_{c}")),
                                 )?;
-                                s.store(
-                                    &format!("foo{}key_{index}_{c}_4", Scope::SEPARATOR)
-                                        .parse()
-                                        .unwrap(),
-                                    Value::from(format!("value_{c}_4")),
+                                t.store(
+                                    &Key::new_scoped(
+                                        transaction_scope.clone(),
+                                        format!("key_{index}_4_{c}").parse::<SegmentBuf>().unwrap(),
+                                    ),
+                                    Value::from(format!("value_4_{c}")),
                                 )?;
 
-                                s.store(&"counter".parse().unwrap(), Value::from(*c + 1))?;
+                                t.store(&"counter".parse().unwrap(), Value::from(*c + 1))?;
 
                                 Ok(())
                             }),
@@ -365,18 +317,17 @@ mod tests {
 
                     let c = counter.lock().unwrap();
 
-                    let mut result = store
-                        .list_keys(&key_scope)
-                        .unwrap()
-                        .into_iter()
-                        .map(|k: Key| k.to_string())
-                        .collect::<Vec<_>>();
-                    let expected: Vec<String> = vec![
-                        format!("foo{}key_{index}_{c}_1", Scope::SEPARATOR),
-                        format!("foo{}key_{index}_{c}_2", Scope::SEPARATOR),
-                        format!("foo{}key_{index}_{c}_3", Scope::SEPARATOR),
-                        format!("foo{}key_{index}_{c}_4", Scope::SEPARATOR),
-                    ];
+                    let mut result: Vec<Key> =
+                        store.list_keys(&scope_clone).unwrap().into_iter().collect();
+                    let expected: Vec<Key> = vec![
+                        format!("key_{index}_1_{c}"),
+                        format!("key_{index}_2_{c}"),
+                        format!("key_{index}_3_{c}"),
+                        format!("key_{index}_4_{c}"),
+                    ]
+                    .iter()
+                    .map(|s| Key::new_scoped(scope_clone.clone(), s.parse::<SegmentBuf>().unwrap()))
+                    .collect();
 
                     drop(c);
 
@@ -392,56 +343,50 @@ mod tests {
             });
         });
 
-        let key_scope = "foo".parse().unwrap();
-        let result = stores[0]
-            .list_keys(&key_scope)
+        let result: Vec<Key> = stores[0]
+            .list_keys(&Scope::global())
             .unwrap()
             .into_iter()
-            .map(|k: Key| k.to_string())
-            .collect::<Vec<_>>();
+            .collect();
 
-        let scenario_1: Vec<String> = vec![
-            format!("foo{}key_0_0_1", Scope::SEPARATOR),
-            format!("foo{}key_0_0_2", Scope::SEPARATOR),
-            format!("foo{}key_0_0_3", Scope::SEPARATOR),
-            format!("foo{}key_0_0_4", Scope::SEPARATOR),
-            format!("foo{}key_1_1_1", Scope::SEPARATOR),
-            format!("foo{}key_1_1_2", Scope::SEPARATOR),
-            format!("foo{}key_1_1_3", Scope::SEPARATOR),
-            format!("foo{}key_1_1_4", Scope::SEPARATOR),
-        ];
+        let scenario1: Vec<Key> = vec![
+            "key_0_1_0",
+            "key_0_2_0",
+            "key_0_3_0",
+            "key_0_4_0",
+            "key_1_1_1",
+            "key_1_2_1",
+            "key_1_3_1",
+            "key_1_4_1",
+        ]
+        .iter()
+        .map(|s| Key::new_scoped(transaction_scope.clone(), s.parse::<SegmentBuf>().unwrap()))
+        .collect();
 
-        let scenario_2: Vec<String> = vec![
-            format!("foo{}key_0_1_1", Scope::SEPARATOR),
-            format!("foo{}key_0_1_2", Scope::SEPARATOR),
-            format!("foo{}key_0_1_3", Scope::SEPARATOR),
-            format!("foo{}key_0_1_4", Scope::SEPARATOR),
-            format!("foo{}key_1_0_1", Scope::SEPARATOR),
-            format!("foo{}key_1_0_2", Scope::SEPARATOR),
-            format!("foo{}key_1_0_3", Scope::SEPARATOR),
-            format!("foo{}key_1_0_4", Scope::SEPARATOR),
-        ];
+        let scenario2: Vec<Key> = vec![
+            "key_0_1_1",
+            "key_0_2_1",
+            "key_0_3_1",
+            "key_0_4_1",
+            "key_1_1_0",
+            "key_1_2_0",
+            "key_1_3_0",
+            "key_1_4_0",
+        ]
+        .iter()
+        .map(|s| Key::new_scoped(transaction_scope.clone(), s.parse::<SegmentBuf>().unwrap()))
+        .collect();
 
         assert!(
-            scenario_1.iter().all(|k| result.contains(k))
-                || scenario_2.iter().all(|k| result.contains(k)),
-            "Invalid scenario: {result:?}"
+            scenario1.iter().all(|k| result.contains(k))
+                || scenario2.iter().all(|k| result.contains(k)),
+            "invalid scenario: {result:?}"
         );
 
         // clean up when all threads end
         stores.iter_mut().for_each(|store| {
             store.clear().unwrap();
         });
-    }
-
-    fn random_ns() -> SegmentBuf {
-        rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(8)
-            .map(char::from)
-            .collect::<String>()
-            .parse()
-            .unwrap()
     }
 
     macro_rules! generate_tests {
@@ -452,67 +397,67 @@ mod tests {
                 #[test]
                 #[serial]
                 fn test_store() {
-                    super::test_store($construct(super::random_ns()))
+                    super::test_store($construct(super::random_segment()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_has() {
-                    super::test_has($construct(super::random_ns()))
+                    super::test_has($construct(super::random_segment()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_has_scope() {
-                    super::test_has_scope($construct(super::random_ns()))
+                    super::test_has_scope($construct(super::random_segment()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_list_keys() {
-                    super::test_list_keys($construct(super::random_ns()))
+                    super::test_list_keys($construct(super::random_segment()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_list_scopes() {
-                    super::test_list_scopes($construct(super::random_ns()))
+                    super::test_list_scopes($construct(super::random_segment()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_move_value() {
-                    super::test_move_value($construct(super::random_ns()))
+                    super::test_move_value($construct(super::random_segment()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_delete() {
-                    super::test_delete($construct(super::random_ns()))
+                    super::test_delete($construct(super::random_segment()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_delete_scope() {
-                    super::test_delete_scope($construct(super::random_ns()))
+                    super::test_delete_scope($construct(super::random_segment()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_clear() {
-                    super::test_clear($construct(super::random_ns()))
+                    super::test_clear($construct(super::random_segment()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_move_scope() {
-                    super::test_move_scope($construct(super::random_ns()))
+                    super::test_move_scope($construct(super::random_segment()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_transaction() {
-                    let ns = super::random_ns();
+                    let ns = super::random_segment();
                     let store1 = $construct(ns.clone());
                     let store2 = $construct(ns.clone());
                     super::test_transaction(vec![store1, store2]);
