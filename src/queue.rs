@@ -165,7 +165,7 @@ mod tests {
                     let key: String = format!("job-{i}");
                     let task = Task {
                         value: json!({ "name": &key }),
-                        key: key,
+                        key,
                         schedule_timestamp: get_ts(),
                         state: TaskState::Pending,
                     };
