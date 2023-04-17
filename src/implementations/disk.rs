@@ -10,7 +10,7 @@ use std::{
 use serde_json::Value;
 
 use crate::{
-    key::{Key, Scope},
+    key::{Key, Scope, SegmentBuf},
     Error, KeyValueStoreBackend, ReadStore, Result, TransactionCallback, WriteStore,
 };
 
@@ -189,7 +189,7 @@ impl PathBufExt for PathBuf {
             .to_string_lossy()
             .to_string();
 
-        let name = file_name
+        let name: SegmentBuf = file_name
             .strip_suffix(".json")
             .map(|s| s.to_string())
             .unwrap_or(file_name)

@@ -4,24 +4,26 @@ use std::{
 };
 
 pub use scope::Scope;
-pub use segment::{ParseSegmentError, Segment};
+pub use segment::{ParseSegmentError, Segment, SegmentBuf};
 
-mod namespace;
 mod scope;
 mod segment;
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Key {
     scope: Scope,
-    name: Segment,
+    name: SegmentBuf,
 }
 
 impl Key {
-    pub fn new_scoped(scope: Scope, name: Segment) -> Key {
-        Key { name, scope }
+    pub fn new_scoped(scope: Scope, name: impl Into<SegmentBuf>) -> Key {
+        Key {
+            name: name.into(),
+            scope,
+        }
     }
 
-    pub fn new_global(name: Segment) -> Key {
+    pub fn new_global(name: impl Into<SegmentBuf>) -> Key {
         Key::new_scoped(Scope::default(), name)
     }
 
@@ -33,27 +35,27 @@ impl Key {
         &self.scope
     }
 
-    pub fn with_sub_scope(&self, sub_scope: Segment) -> Self {
+    pub fn with_sub_scope(&self, sub_scope: impl Into<SegmentBuf>) -> Self {
         let mut clone = self.clone();
         clone.add_sub_scope(sub_scope);
         clone
     }
 
-    pub fn add_sub_scope(&mut self, sub_scope: Segment) {
+    pub fn add_sub_scope(&mut self, sub_scope: impl Into<SegmentBuf>) {
         self.scope.add_sub_scope(sub_scope);
     }
 
-    pub fn with_namespace(&self, namespace: Segment) -> Self {
+    pub fn with_namespace(&self, namespace: impl Into<SegmentBuf>) -> Self {
         let mut clone = self.clone();
         clone.add_namespace(namespace);
         clone
     }
 
-    pub fn add_namespace(&mut self, namespace: Segment) {
+    pub fn add_namespace(&mut self, namespace: impl Into<SegmentBuf>) {
         self.scope.add_namespace(namespace);
     }
 
-    pub fn remove_namespace(&mut self, namespace: Segment) -> Option<Segment> {
+    pub fn remove_namespace(&mut self, namespace: impl Into<SegmentBuf>) -> Option<SegmentBuf> {
         self.scope.remove_namespace(namespace)
     }
 }
@@ -72,9 +74,9 @@ impl FromStr for Key {
     type Err = ParseSegmentError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut segments: Vec<Segment> = s
+        let mut segments: Vec<SegmentBuf> = s
             .split(Scope::SEPARATOR)
-            .map(Segment::from_str)
+            .map(SegmentBuf::from_str)
             .collect::<Result<_, _>>()?;
         let name = segments.pop().unwrap();
         let scope = Scope::new(segments);

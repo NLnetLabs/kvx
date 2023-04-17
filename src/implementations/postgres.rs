@@ -12,7 +12,7 @@ use r2d2_postgres::{
 use url::Url;
 
 use crate::{
-    key::Segment, Key, KeyValueStoreBackend, ReadStore, Result, Scope, TransactionCallback,
+    key::SegmentBuf, Key, KeyValueStoreBackend, ReadStore, Result, Scope, TransactionCallback,
     WriteStore,
 };
 
@@ -22,17 +22,17 @@ pub type PgPool = Pool<PostgresClient>;
 
 #[derive(Debug)]
 pub(crate) struct Postgres<E> {
-    namespace: Segment,
+    namespace: SegmentBuf,
     executor: E,
 }
 
 impl Postgres<PgPool> {
-    pub(crate) fn new(connection_str: &Url, namespace: Segment) -> Result<Self> {
+    pub(crate) fn new(connection_str: &Url, namespace: impl Into<SegmentBuf>) -> Result<Self> {
         let manager = PostgresConnectionManager::new(connection_str.as_str().parse()?, NoTls);
         let pool = Pool::new(manager)?;
 
         Ok(Postgres {
-            namespace,
+            namespace: namespace.into(),
             executor: pool,
         })
     }
@@ -89,7 +89,7 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
             .executor()?
             .exec_query_opt(
                 "SELECT 1 FROM store WHERE scope = $1 AND key = $2",
-                &[key.scope().as_vec(), key.name()],
+                &[key.scope().as_vec(), &key.name()],
             )?
             .is_some())
     }
@@ -114,7 +114,7 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
             .executor()?
             .exec_query_opt(
                 "SELECT value FROM store WHERE scope = $1 AND key = $2",
-                &[key.scope().as_vec(), key.name()],
+                &[key.scope().as_vec(), &key.name()],
             )?
             .and_then(|row| row.get(0)))
     }
@@ -130,10 +130,10 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
             )?
             .into_iter()
             .map(|row| {
-                let scope: Vec<Segment> = row.get(0);
+                let scope: Vec<SegmentBuf> = row.get(0);
                 let mut scope = Scope::new(scope);
                 scope.remove_namespace(self.namespace.clone());
-                let name: Segment = row.get(1);
+                let name: SegmentBuf = row.get(1);
 
                 Key::new_scoped(scope, name)
             })
@@ -147,7 +147,7 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
             .exec_query("SELECT scope FROM store", &[])?
             .into_iter()
             .flat_map(|row| {
-                let scope: Vec<Segment> = row.get(0);
+                let scope: Vec<SegmentBuf> = row.get(0);
                 let mut scope = Scope::new(scope);
                 if scope.remove_namespace(self.namespace.clone()).is_some() {
                     scope.sub_scopes()
@@ -165,7 +165,7 @@ impl<E: HasExecutor> WriteStore for Postgres<E> {
         self.executor.executor()?.exec_execute(
             "INSERT INTO store (scope, key, value) VALUES ($1, $2, $3) ON CONFLICT (scope, key) \
              DO UPDATE SET value = $3",
-            &[key.scope().as_vec(), key.name(), &value],
+            &[key.scope().as_vec(), &key.name(), &value],
         )?;
 
         Ok(())
@@ -179,9 +179,9 @@ impl<E: HasExecutor> WriteStore for Postgres<E> {
             "UPDATE store SET scope = $3, key = $4 WHERE scope = $1 AND key = $2",
             &[
                 from.scope().as_vec(),
-                from.name(),
+                &from.name(),
                 to.scope().as_vec(),
-                to.name(),
+                &to.name(),
             ],
         )?;
 
@@ -204,7 +204,7 @@ impl<E: HasExecutor> WriteStore for Postgres<E> {
         let key = key.with_namespace(self.namespace.clone());
         self.executor.executor()?.exec_execute(
             "DELETE FROM store WHERE scope = $1 AND key = $2",
-            &[key.scope().as_vec(), key.name()],
+            &[key.scope().as_vec(), &key.name()],
         )?;
 
         Ok(())

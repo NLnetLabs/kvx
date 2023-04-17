@@ -17,7 +17,7 @@ mod tests {
     use super::{disk::Disk, memory::Memory};
     #[cfg(feature = "postgres")]
     use crate::implementations::postgres::{PgPool, Postgres};
-    use crate::{key::Segment, Key, KeyValueStoreBackend, Scope};
+    use crate::{key::SegmentBuf, Key, KeyValueStoreBackend, Scope};
 
     fn test_store(store: impl KeyValueStoreBackend) {
         store
@@ -434,7 +434,7 @@ mod tests {
         });
     }
 
-    fn random_ns() -> Segment {
+    fn random_ns() -> SegmentBuf {
         rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .take(8)
@@ -522,7 +522,7 @@ mod tests {
     }
 
     #[cfg(feature = "postgres")]
-    fn postgres(namespace: Segment) -> Postgres<PgPool> {
+    fn postgres(namespace: SegmentBuf) -> Postgres<PgPool> {
         let pg = Postgres::new(
             &url::Url::parse("postgres://postgres@localhost/postgres").unwrap(),
             namespace,
@@ -534,13 +534,13 @@ mod tests {
         pg
     }
 
-    fn memory(namespace: Segment) -> Memory {
+    fn memory(namespace: SegmentBuf) -> Memory {
         let store = Memory::new(namespace);
         store.lock().unwrap().clear();
         store
     }
 
-    fn fs(namespace: Segment) -> Disk {
+    fn disk(namespace: SegmentBuf) -> Disk {
         let cwd = std::env::current_dir().unwrap().join("data");
         let path = cwd.to_str().unwrap();
         if cwd.exists() {
@@ -553,5 +553,5 @@ mod tests {
     #[cfg(feature = "postgres")]
     generate_tests!(test_postgres, super::postgres);
     generate_tests!(test_memory, super::memory);
-    generate_tests!(test_fs, super::fs);
+    generate_tests!(test_fs, super::disk);
 }

@@ -1,5 +1,7 @@
 use std::{
+    borrow::Borrow,
     fmt::{Display, Formatter},
+    ops::Deref,
     str::FromStr,
 };
 
@@ -9,82 +11,121 @@ use crate::Scope;
 
 /// A nonempty string that does not start or end with whitespace and does not
 /// contain any instances of [`Scope::SEPARATOR`].
+///
+/// This is the owned variant of [`Segment`].
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct Segment(String);
+#[repr(transparent)]
+pub struct SegmentBuf(String);
 
-impl Segment {
-    pub fn parse(value: &str) -> Result<Self, ParseSegmentError> {
-        value.parse()
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
+impl AsRef<Segment> for SegmentBuf {
+    fn as_ref(&self) -> &Segment {
+        self
     }
 }
 
-impl Display for Segment {
+impl Borrow<Segment> for SegmentBuf {
+    fn borrow(&self) -> &Segment {
+        self
+    }
+}
+
+impl Deref for SegmentBuf {
+    type Target = Segment;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { Segment::from_str_unchecked(&self.0) }
+    }
+}
+
+impl Display for SegmentBuf {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl FromStr for Segment {
+impl FromStr for SegmentBuf {
     type Err = ParseSegmentError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.trim() != s {
-            Err(ParseSegmentError::TrailingWhitespace)
-        } else if s.is_empty() {
+        Ok(Segment::parse(s)?.to_owned())
+    }
+}
+
+impl From<&Segment> for SegmentBuf {
+    fn from(value: &Segment) -> Self {
+        value.to_owned()
+    }
+}
+
+/// A nonempty string slice that does not start or end with whitespace and does
+/// not contain any instances of [`Scope::SEPARATOR`].
+///
+/// For the owned variant, see [`SegmentBuf`].
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[repr(transparent)]
+pub struct Segment(str);
+
+impl Segment {
+    pub const fn parse(value: &str) -> Result<&Self, ParseSegmentError> {
+        if value.is_empty() {
             Err(ParseSegmentError::Empty)
-        } else if s.contains(Scope::SEPARATOR) {
-            Err(ParseSegmentError::ContainsSeparator)
         } else {
-            Ok(Segment(s.to_owned()))
+            let bytes = value.as_bytes();
+            if Self::leading_whitespace(bytes) || Self::trailing_whitespace(bytes) {
+                Err(ParseSegmentError::TrailingWhitespace)
+            } else if Self::contains_separator(bytes) {
+                Err(ParseSegmentError::ContainsSeparator)
+            } else {
+                unsafe { Ok(Segment::from_str_unchecked(value)) }
+            }
         }
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// # Safety
+    ///
+    /// This function shoulf only be called from the kvx-mcros crate - do not
+    /// use directly
+    pub const unsafe fn from_str_unchecked(s: &str) -> &Self {
+        &*(s as *const _ as *const Self)
+    }
+
+    const fn leading_whitespace(bytes: &[u8]) -> bool {
+        matches!(bytes[0], 9 | 10 | 32)
+    }
+
+    const fn trailing_whitespace(bytes: &[u8]) -> bool {
+        matches!(bytes[bytes.len() - 1], 9 | 10 | 32)
+    }
+
+    const fn contains_separator(bytes: &[u8]) -> bool {
+        let mut index = 0;
+
+        while index < bytes.len() {
+            if bytes[index] == Scope::SEPARATOR as u8 {
+                return true;
+            }
+            index += 1;
+        }
+
+        false
+    }
 }
 
-#[cfg(feature = "postgres")]
-impl postgres::types::ToSql for Segment {
-    fn to_sql(
-        &self,
-        ty: &postgres_types::Type,
-        out: &mut postgres_types::private::BytesMut,
-    ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>>
-    where
-        Self: Sized,
-    {
-        self.0.to_sql(ty, out)
-    }
-
-    fn accepts(ty: &postgres_types::Type) -> bool
-    where
-        Self: Sized,
-    {
-        String::accepts(ty)
-    }
-
-    fn to_sql_checked(
-        &self,
-        ty: &postgres_types::Type,
-        out: &mut postgres_types::private::BytesMut,
-    ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
-        self.0.to_sql_checked(ty, out)
+impl Display for Segment {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.0)
     }
 }
 
-#[cfg(feature = "postgres")]
-impl<'a> postgres::types::FromSql<'a> for Segment {
-    fn from_sql(
-        ty: &postgres_types::Type,
-        raw: &'a [u8],
-    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
-        let s = String::from_sql(ty, raw)?;
-        Ok(Segment::parse(&s)?)
-    }
+impl ToOwned for Segment {
+    type Owned = SegmentBuf;
 
-    fn accepts(ty: &postgres_types::Type) -> bool {
-        String::accepts(ty)
+    fn to_owned(&self) -> Self::Owned {
+        SegmentBuf(self.0.to_owned())
     }
 }
 
@@ -96,4 +137,124 @@ pub enum ParseSegmentError {
     Empty,
     #[error("segments must not contain scope separators")]
     ContainsSeparator,
+}
+
+#[cfg(feature = "postgres")]
+mod postgres_impls {
+    use crate::{key::segment::SegmentBuf, Segment};
+
+    impl postgres::types::ToSql for &Segment {
+        fn to_sql(
+            &self,
+            ty: &postgres_types::Type,
+            out: &mut postgres_types::private::BytesMut,
+        ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>>
+        where
+            Self: Sized,
+        {
+            (&self.0).to_sql(ty, out)
+        }
+
+        fn accepts(ty: &postgres_types::Type) -> bool
+        where
+            Self: Sized,
+        {
+            <&str>::accepts(ty)
+        }
+
+        fn to_sql_checked(
+            &self,
+            ty: &postgres_types::Type,
+            out: &mut postgres_types::private::BytesMut,
+        ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+            (&self.0).to_sql_checked(ty, out)
+        }
+    }
+
+    impl postgres::types::ToSql for SegmentBuf {
+        fn to_sql(
+            &self,
+            ty: &postgres_types::Type,
+            out: &mut postgres_types::private::BytesMut,
+        ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>>
+        where
+            Self: Sized,
+        {
+            self.0.to_sql(ty, out)
+        }
+
+        fn accepts(ty: &postgres_types::Type) -> bool
+        where
+            Self: Sized,
+        {
+            String::accepts(ty)
+        }
+
+        fn to_sql_checked(
+            &self,
+            ty: &postgres_types::Type,
+            out: &mut postgres_types::private::BytesMut,
+        ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+            self.0.to_sql_checked(ty, out)
+        }
+    }
+
+    impl<'a> postgres::types::FromSql<'a> for SegmentBuf {
+        fn from_sql(
+            ty: &postgres_types::Type,
+            raw: &'a [u8],
+        ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+            let value = String::from_sql(ty, raw)?;
+            Ok(Segment::parse(&value)?.to_owned())
+        }
+
+        fn accepts(ty: &postgres_types::Type) -> bool {
+            String::accepts(ty)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Segment;
+
+    #[test]
+    fn test_trailing_space_fails() {
+        assert!(Segment::parse("test ").is_err());
+    }
+
+    #[test]
+    fn test_trailing_tab_fails() {
+        assert!(Segment::parse("test\t").is_err());
+    }
+
+    #[test]
+    fn test_trailing_newline_fails() {
+        assert!(Segment::parse("test\n").is_err());
+    }
+
+    #[test]
+    fn test_leading_space_fails() {
+        assert!(Segment::parse(" test").is_err());
+    }
+
+    #[test]
+    fn test_leading_tab_fails() {
+        assert!(Segment::parse("\ttest").is_err());
+    }
+
+    #[test]
+    fn test_leading_newline_fails() {
+        assert!(Segment::parse("\ntest").is_err());
+    }
+
+    #[test]
+    fn test_containing_separator_fails() {
+        assert!(Segment::parse("te/st").is_err());
+    }
+
+    #[test]
+    fn test_segment_succeeds() {
+        assert!(Segment::parse("test").is_ok())
+    }
 }
