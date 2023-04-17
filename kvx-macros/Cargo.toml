@@ -2,6 +2,10 @@
 name = "kvx_macros"
 version = "0.3.0"
 edition = "2021"
+description = "Macros for kvx: an abstraction layer over various key-value store backends"
+license = "MPL-2.0"
+readme = "README.md"
+repository = "https://github.com/tweedegolf/kvx"
 
 [lib]
 proc-macro = true
