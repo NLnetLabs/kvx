@@ -8,30 +8,35 @@ use crate::{Key, Result, Scope, SegmentBuf};
 
 #[async_trait]
 pub trait ReadStore {
-    async fn has(&mut self, key: &Key) -> Result<bool>;
-    async fn has_scope(&mut self, scope: &Scope) -> Result<bool>;
-    async fn get(&mut self, key: &Key) -> Result<Option<Value>>;
-    async fn list_keys(&mut self, scope: &Scope) -> Result<Vec<Key>>;
-    async fn list_scopes(&mut self) -> Result<Vec<Scope>>;
+    async fn has(&self, key: &Key) -> Result<bool>;
+    async fn has_scope(&self, scope: &Scope) -> Result<bool>;
+    async fn get(&self, key: &Key) -> Result<Option<Value>>;
+    async fn list_keys(&self, scope: &Scope) -> Result<Vec<Key>>;
+    async fn list_scopes(&self) -> Result<Vec<Scope>>;
 }
 
 #[async_trait]
 pub trait WriteStore {
-    async fn store(&mut self, key: &Key, value: Value) -> Result<()>;
-    async fn move_value(&mut self, from: &Key, to: &Key) -> Result<()>;
-    async fn move_scope(&mut self, from: &Scope, to: &Scope) -> Result<()>;
+    async fn store(&self, key: &Key, value: Value) -> Result<()>;
+    async fn move_value(&self, from: &Key, to: &Key) -> Result<()>;
+    async fn move_scope(&self, from: &Scope, to: &Scope) -> Result<()>;
 
-    async fn delete(&mut self, key: &Key) -> Result<()>;
-    async fn delete_scope(&mut self, scope: &Scope) -> Result<()>;
-    async fn clear(&mut self) -> Result<()>;
+    async fn delete(&self, key: &Key) -> Result<()>;
+    async fn delete_scope(&self, scope: &Scope) -> Result<()>;
+    async fn clear(&self) -> Result<()>;
 }
 
-pub type TransactionCallback =
-    Box<dyn Fn(&mut dyn KeyValueStoreBackend) -> Box<dyn Future<Output = Result<()>>> + Send>;
+pub type TransactionCallback = Box<
+    dyn Fn(
+            &(dyn KeyValueStoreBackend + Sync),
+        ) -> Box<dyn Future<Output = Result<()>> + Unpin + Send>
+        + Send
+        + Sync,
+>;
 
 #[async_trait]
 pub trait KeyValueStoreBackend: ReadStore + WriteStore {
-    async fn transaction(&mut self, scope: &Scope, callback: TransactionCallback) -> Result<()>;
+    async fn transaction(&self, scope: &Scope, callback: TransactionCallback) -> Result<()>;
 }
 
 pub trait PubKeyValueStoreBackend: KeyValueStoreBackend + Debug + Send + Sync {}
@@ -62,57 +67,57 @@ impl KeyValueStore {
 
 #[async_trait]
 impl KeyValueStoreBackend for KeyValueStore {
-    async fn transaction(&mut self, scope: &Scope, callback: TransactionCallback) -> Result<()> {
+    async fn transaction(&self, scope: &Scope, callback: TransactionCallback) -> Result<()> {
         self.inner.transaction(scope, callback).await
     }
 }
 
 #[async_trait]
 impl ReadStore for KeyValueStore {
-    async fn has(&mut self, key: &Key) -> Result<bool> {
+    async fn has(&self, key: &Key) -> Result<bool> {
         self.inner.has(key).await
     }
 
-    async fn has_scope(&mut self, scope: &Scope) -> Result<bool> {
+    async fn has_scope(&self, scope: &Scope) -> Result<bool> {
         self.inner.has_scope(scope).await
     }
 
-    async fn get(&mut self, key: &Key) -> Result<Option<Value>> {
+    async fn get(&self, key: &Key) -> Result<Option<Value>> {
         self.inner.get(key).await
     }
 
-    async fn list_keys(&mut self, scope: &Scope) -> Result<Vec<Key>> {
+    async fn list_keys(&self, scope: &Scope) -> Result<Vec<Key>> {
         self.inner.list_keys(scope).await
     }
 
-    async fn list_scopes(&mut self) -> Result<Vec<Scope>> {
+    async fn list_scopes(&self) -> Result<Vec<Scope>> {
         self.inner.list_scopes().await
     }
 }
 
 #[async_trait]
 impl WriteStore for KeyValueStore {
-    async fn store(&mut self, key: &Key, value: Value) -> Result<()> {
+    async fn store(&self, key: &Key, value: Value) -> Result<()> {
         self.inner.store(key, value).await
     }
 
-    async fn move_value(&mut self, from: &Key, to: &Key) -> Result<()> {
+    async fn move_value(&self, from: &Key, to: &Key) -> Result<()> {
         self.inner.move_value(from, to).await
     }
 
-    async fn move_scope(&mut self, from: &Scope, to: &Scope) -> Result<()> {
+    async fn move_scope(&self, from: &Scope, to: &Scope) -> Result<()> {
         self.inner.move_scope(from, to).await
     }
 
-    async fn delete(&mut self, key: &Key) -> Result<()> {
+    async fn delete(&self, key: &Key) -> Result<()> {
         self.inner.delete(key).await
     }
 
-    async fn delete_scope(&mut self, scope: &Scope) -> Result<()> {
+    async fn delete_scope(&self, scope: &Scope) -> Result<()> {
         self.inner.delete_scope(scope).await
     }
 
-    async fn clear(&mut self) -> Result<()> {
+    async fn clear(&self) -> Result<()> {
         self.inner.clear().await
     }
 }

@@ -7,6 +7,7 @@ use r2d2_postgres::{
     r2d2::{Pool, PooledConnection},
     PostgresConnectionManager,
 };
+use tokio::sync::{Mutex, MutexGuard};
 use url::Url;
 
 use crate::{
@@ -34,31 +35,66 @@ impl Postgres<PgPool> {
             executor: pool,
         })
     }
+
+    pub async fn truncate(&self) -> Result<()> {
+        self.executor
+            .executor()
+            .await?
+            .exec_query("TRUNCATE table store", &[])
+            .await?;
+
+        Ok(())
+    }
 }
 
 #[async_trait]
 impl<E> KeyValueStoreBackend for Postgres<E>
 where
-    E: HasExecutor + Send,
+    E: HasExecutor + Send + Sync,
     for<'a> E::Executor<'a>: Send,
 {
-    async fn transaction(&mut self, _scope: &Scope, callback: TransactionCallback) -> Result<()> {
-        todo!();
+    async fn transaction(&self, _scope: &Scope, callback: TransactionCallback) -> Result<()> {
+        const TRIES: usize = 10;
+
+        for i in 0..=TRIES {
+            let mut client = self.executor.executor().await?;
+            let mut transaction = client.exec_transaction().await?;
+            transaction.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", &[])?;
+
+            let mut postgres = Postgres {
+                namespace: self.namespace.clone(),
+                executor: Mutex::new(transaction),
+            };
+
+            if let Err(e) = callback(&mut postgres).await {
+                postgres.executor.into_inner().rollback()?;
+
+                if i == TRIES {
+                    Err(e)?;
+                }
+            } else {
+                postgres.executor.into_inner().commit()?;
+                break;
+            }
+        }
+
+        Ok(())
     }
 }
 
 #[async_trait]
 impl<E> ReadStore for Postgres<E>
 where
-    E: HasExecutor + Send,
+    E: HasExecutor + Send + Sync,
     for<'a> E::Executor<'a>: Send,
 {
-    async fn has(&mut self, key: &Key) -> Result<bool> {
+    async fn has(&self, key: &Key) -> Result<bool> {
         let key = key.with_namespace(self.namespace.clone());
 
         Ok(self
             .executor
-            .get_executor()?
+            .executor()
+            .await?
             .exec_query_opt(
                 "SELECT 1 FROM store WHERE scope = $1 AND key = $2",
                 &[key.scope().as_vec(), &key.name()],
@@ -67,12 +103,13 @@ where
             .is_some())
     }
 
-    async fn has_scope(&mut self, scope: &Scope) -> Result<bool> {
+    async fn has_scope(&self, scope: &Scope) -> Result<bool> {
         let scope = scope.with_namespace(self.namespace.clone());
 
         Ok(self
             .executor
-            .get_executor()?
+            .executor()
+            .await?
             .exec_query_opt(
                 "SELECT 1 FROM store WHERE scope[:$2]  = $1",
                 &[scope.as_vec(), &scope.len()],
@@ -81,11 +118,12 @@ where
             .is_some())
     }
 
-    async fn get(&mut self, key: &Key) -> Result<Option<serde_json::Value>> {
+    async fn get(&self, key: &Key) -> Result<Option<serde_json::Value>> {
         let key = key.with_namespace(self.namespace.clone());
         Ok(self
             .executor
-            .get_executor()?
+            .executor()
+            .await?
             .exec_query_opt(
                 "SELECT value FROM store WHERE scope = $1 AND key = $2",
                 &[key.scope().as_vec(), &key.name()],
@@ -94,11 +132,12 @@ where
             .and_then(|row| row.get(0)))
     }
 
-    async fn list_keys(&mut self, scope: &Scope) -> Result<Vec<Key>> {
+    async fn list_keys(&self, scope: &Scope) -> Result<Vec<Key>> {
         let scope = scope.with_namespace(self.namespace.clone());
         Ok(self
             .executor
-            .get_executor()?
+            .executor()
+            .await?
             .exec_query(
                 "SELECT scope, key FROM store WHERE scope[:$2] = $1",
                 &[scope.as_vec(), &scope.len()],
@@ -116,10 +155,11 @@ where
             .collect::<Vec<Key>>())
     }
 
-    async fn list_scopes(&mut self) -> Result<Vec<Scope>> {
+    async fn list_scopes(&self) -> Result<Vec<Scope>> {
         Ok(self
             .executor
-            .get_executor()?
+            .executor()
+            .await?
             .exec_query("SELECT scope FROM store", &[])
             .await?
             .into_iter()
@@ -139,13 +179,14 @@ where
 #[async_trait]
 impl<E> WriteStore for Postgres<E>
 where
-    E: HasExecutor + Send,
+    E: HasExecutor + Send + Sync,
     for<'a> E::Executor<'a>: Send,
 {
-    async fn store(&mut self, key: &Key, value: serde_json::Value) -> Result<()> {
+    async fn store(&self, key: &Key, value: serde_json::Value) -> Result<()> {
         let key = key.with_namespace(self.namespace.clone());
         self.executor
-            .get_executor()?
+            .executor()
+            .await?
             .exec_execute(
                 "INSERT INTO store (scope, key, value) VALUES ($1, $2, $3) ON CONFLICT (scope, \
                  key) DO UPDATE SET value = $3",
@@ -156,12 +197,13 @@ where
         Ok(())
     }
 
-    async fn move_value(&mut self, from: &Key, to: &Key) -> Result<()> {
+    async fn move_value(&self, from: &Key, to: &Key) -> Result<()> {
         let from = from.with_namespace(self.namespace.clone());
         let to = to.with_namespace(self.namespace.clone());
 
         self.executor
-            .get_executor()?
+            .executor()
+            .await?
             .exec_execute(
                 "UPDATE store SET scope = $3, key = $4 WHERE scope = $1 AND key = $2",
                 &[
@@ -176,12 +218,13 @@ where
         Ok(())
     }
 
-    async fn move_scope(&mut self, from: &Scope, to: &Scope) -> Result<()> {
+    async fn move_scope(&self, from: &Scope, to: &Scope) -> Result<()> {
         let from = from.with_namespace(self.namespace.clone());
         let to = to.with_namespace(self.namespace.clone());
 
         self.executor
-            .get_executor()?
+            .executor()
+            .await?
             .exec_execute(
                 "UPDATE store SET scope = $2 WHERE scope = $1",
                 &[&from.as_vec(), &to.as_vec()],
@@ -191,10 +234,11 @@ where
         Ok(())
     }
 
-    async fn delete(&mut self, key: &Key) -> Result<()> {
+    async fn delete(&self, key: &Key) -> Result<()> {
         let key = key.with_namespace(self.namespace.clone());
         self.executor
-            .get_executor()?
+            .executor()
+            .await?
             .exec_execute(
                 "DELETE FROM store WHERE scope = $1 AND key = $2",
                 &[key.scope().as_vec(), &key.name()],
@@ -204,19 +248,21 @@ where
         Ok(())
     }
 
-    async fn delete_scope(&mut self, scope: &Scope) -> Result<()> {
+    async fn delete_scope(&self, scope: &Scope) -> Result<()> {
         let scope = scope.with_namespace(self.namespace.clone());
         self.executor
-            .get_executor()?
+            .executor()
+            .await?
             .exec_execute("DELETE FROM store WHERE scope = $1", &[&scope.as_vec()])
             .await?;
 
         Ok(())
     }
 
-    async fn clear(&mut self) -> Result<()> {
+    async fn clear(&self) -> Result<()> {
         self.executor
-            .get_executor()?
+            .executor()
+            .await?
             .exec_execute("DELETE FROM store WHERE scope[1] = $1", &[&self.namespace])
             .await?;
 
@@ -224,27 +270,30 @@ where
     }
 }
 
+#[async_trait]
 trait HasExecutor {
     type Executor<'a>: Executor
     where
         Self: 'a;
 
-    fn get_executor(&mut self) -> Result<Self::Executor<'_>>;
+    async fn executor(&self) -> Result<Self::Executor<'_>>;
 }
 
+#[async_trait]
 impl HasExecutor for PgPool {
     type Executor<'a> = PooledConnection<PostgresClient> where Self: 'a;
 
-    fn get_executor(&mut self) -> Result<Self::Executor<'_>> {
+    async fn executor(&self) -> Result<Self::Executor<'_>> {
         Ok(self.get()?)
     }
 }
 
-impl HasExecutor for Transaction<'_> {
-    type Executor<'a> = &'a mut Self where Self: 'a;
+#[async_trait]
+impl<'b> HasExecutor for Mutex<Transaction<'b>> {
+    type Executor<'a> = MutexGuard<'a, Transaction<'b>> where Self: 'a;
 
-    fn get_executor(&mut self) -> Result<Self::Executor<'_>> {
-        Ok(self)
+    async fn executor(&self) -> Result<Self::Executor<'_>> {
+        Ok(self.lock().await)
     }
 }
 
@@ -271,51 +320,6 @@ pub trait Executor {
     async fn exec_execute<T>(&mut self, query: &T, params: &[&(dyn ToSql + Sync)]) -> Result<u64>
     where
         T: ?Sized + ToStatement + Sync;
-}
-
-#[async_trait]
-impl<E> Executor for Postgres<E>
-where
-    E: HasExecutor + Send,
-    for<'a> E::Executor<'a>: Send,
-{
-    async fn exec_transaction(&mut self) -> Result<Transaction<'_>> {
-        todo!()
-    }
-
-    async fn exec_query<T>(&mut self, query: &T, params: &[&(dyn ToSql + Sync)]) -> Result<Vec<Row>>
-    where
-        T: ?Sized + ToStatement + Sync,
-    {
-        self.executor
-            .get_executor()?
-            .exec_query(query, params)
-            .await
-    }
-
-    async fn exec_query_opt<T>(
-        &mut self,
-        query: &T,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> Result<Option<Row>>
-    where
-        T: ?Sized + ToStatement + Sync,
-    {
-        self.executor
-            .get_executor()?
-            .exec_query_opt(query, params)
-            .await
-    }
-
-    async fn exec_execute<T>(&mut self, query: &T, params: &[&(dyn ToSql + Sync)]) -> Result<u64>
-    where
-        T: ?Sized + ToStatement + Sync,
-    {
-        self.executor
-            .get_executor()?
-            .exec_execute(query, params)
-            .await
-    }
 }
 
 #[async_trait]
@@ -351,7 +355,7 @@ impl Executor for PooledConnection<PostgresClient> {
 }
 
 #[async_trait]
-impl Executor for &mut Transaction<'_> {
+impl Executor for MutexGuard<'_, Transaction<'_>> {
     async fn exec_transaction(&mut self) -> Result<Transaction<'_>> {
         Ok(self.transaction()?)
     }
