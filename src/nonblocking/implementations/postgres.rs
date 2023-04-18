@@ -26,7 +26,7 @@ pub struct Postgres<E> {
 }
 
 impl Postgres<PgPool> {
-    pub fn new(connection_str: &Url, namespace: impl Into<SegmentBuf>) -> Result<Self> {
+    pub async fn new(connection_str: &Url, namespace: impl Into<SegmentBuf>) -> Result<Self> {
         let manager = PostgresConnectionManager::new(connection_str.as_str().parse()?, NoTls);
         let pool = Pool::new(manager)?;
 
@@ -54,31 +54,33 @@ where
     for<'a> E::Executor<'a>: Send,
 {
     async fn transaction(&self, _scope: &Scope, callback: TransactionCallback) -> Result<()> {
-        const TRIES: usize = 10;
-
-        for i in 0..=TRIES {
-            let mut client = self.executor.executor().await?;
-            let mut transaction = client.exec_transaction().await?;
-            transaction.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", &[])?;
-
-            let mut postgres = Postgres {
-                namespace: self.namespace.clone(),
-                executor: Mutex::new(transaction),
-            };
-
-            if let Err(e) = callback(&mut postgres).await {
-                postgres.executor.into_inner().rollback()?;
-
-                if i == TRIES {
-                    Err(e)?;
-                }
-            } else {
-                postgres.executor.into_inner().commit()?;
-                break;
-            }
-        }
-
-        Ok(())
+        todo!()
+        // const TRIES: usize = 10;
+        //
+        // for i in 0..=TRIES {
+        //     let mut client = self.executor.executor().await?;
+        //     let mut transaction = client.exec_transaction().await?;
+        //     transaction.execute("SET TRANSACTION ISOLATION LEVEL
+        // SERIALIZABLE", &[])?;
+        //
+        //     let mut postgres = Postgres {
+        //         namespace: self.namespace.clone(),
+        //         executor: Mutex::new(transaction),
+        //     };
+        //
+        //     if let Err(e) = callback(&mut postgres).await {
+        //         postgres.executor.into_inner().rollback()?;
+        //
+        //         if i == TRIES {
+        //             Err(e)?;
+        //         }
+        //     } else {
+        //         postgres.executor.into_inner().commit()?;
+        //         break;
+        //     }
+        // }
+        //
+        // Ok(())
     }
 }
 

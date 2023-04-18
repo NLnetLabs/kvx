@@ -49,14 +49,15 @@ pub struct KeyValueStore {
 }
 
 impl KeyValueStore {
-    pub fn new(storage_uri: &Url, namespace: impl Into<SegmentBuf>) -> Result<KeyValueStore> {
+    pub async fn new(storage_uri: &Url, namespace: impl Into<SegmentBuf>) -> Result<KeyValueStore> {
         let inner: Box<dyn PubKeyValueStoreBackend> = match storage_uri.scheme() {
             #[cfg(feature = "postgres")]
             "postgres" => Box::new(
                 crate::nonblocking::implementations::postgres::Postgres::new(
                     storage_uri,
                     namespace,
-                )?,
+                )
+                .await?,
             ),
             scheme => Err(crate::error::Error::UnknownScheme(scheme.to_owned()))?,
         };
