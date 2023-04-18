@@ -12,8 +12,8 @@ use r2d2_postgres::{
 use url::Url;
 
 use crate::{
-    Key, KeyValueStoreBackend, ReadStore, Result, Scope, SegmentBuf, TransactionCallback,
-    WriteStore,
+    sync::{KeyValueStoreBackend, ReadStore, TransactionCallback, WriteStore},
+    Key, Result, Scope, SegmentBuf,
 };
 
 type PostgresClient = PostgresConnectionManager<NoTls>;
@@ -21,13 +21,13 @@ type PostgresClient = PostgresConnectionManager<NoTls>;
 pub type PgPool = Pool<PostgresClient>;
 
 #[derive(Debug)]
-pub(crate) struct Postgres<E> {
+pub struct Postgres<E> {
     namespace: SegmentBuf,
     executor: E,
 }
 
 impl Postgres<PgPool> {
-    pub(crate) fn new(connection_str: &Url, namespace: impl Into<SegmentBuf>) -> Result<Self> {
+    pub fn new(connection_str: &Url, namespace: impl Into<SegmentBuf>) -> Result<Self> {
         let manager = PostgresConnectionManager::new(connection_str.as_str().parse()?, NoTls);
         let pool = Pool::new(manager)?;
 
@@ -37,8 +37,7 @@ impl Postgres<PgPool> {
         })
     }
 
-    #[cfg(test)]
-    pub(crate) fn truncate(&self) -> Result<()> {
+    pub fn truncate(&self) -> Result<()> {
         self.executor
             .executor()?
             .exec_query("TRUNCATE table store", &[])?;
