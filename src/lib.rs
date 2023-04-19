@@ -4,7 +4,7 @@ use implementations::{disk::Disk, memory::Memory};
 pub use kvx_macros::segment;
 pub use kvx_types::{Key, Scope, Segment, SegmentBuf};
 #[cfg(feature = "queue")]
-pub use queue::{Queue, Task, TaskState};
+pub use queue::{Queue, Task};
 use serde_json::Value;
 use url::Url;
 
