@@ -10,8 +10,8 @@ use std::{
 use serde_json::Value;
 
 use crate::{
-    key::{Key, Scope, SegmentBuf},
-    Error, KeyValueStoreBackend, ReadStore, Result, TransactionCallback, WriteStore,
+    Error, Key, KeyValueStoreBackend, ReadStore, Result, Scope, SegmentBuf, TransactionCallback,
+    WriteStore,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -153,7 +153,11 @@ impl KeyValueStoreBackend for Disk {
     }
 }
 
-impl Key {
+trait AsPath {
+    fn as_path(&self, root: impl AsRef<Path>) -> PathBuf;
+}
+
+impl AsPath for Key {
     fn as_path(&self, root: impl AsRef<Path>) -> PathBuf {
         let mut path = root.as_ref().to_path_buf();
         for segment in self.scope() {
@@ -164,7 +168,7 @@ impl Key {
     }
 }
 
-impl Scope {
+impl AsPath for Scope {
     fn as_path(&self, root: impl AsRef<Path>) -> PathBuf {
         let mut path = root.as_ref().to_path_buf();
         for segment in self {

@@ -141,7 +141,7 @@ pub enum ParseSegmentError {
 
 #[cfg(feature = "postgres")]
 mod postgres_impls {
-    use crate::{key::segment::SegmentBuf, Segment};
+    use crate::segment::{Segment, SegmentBuf};
 
     impl postgres::types::ToSql for &Segment {
         fn to_sql(

@@ -6,8 +6,8 @@ use std::{
 use lazy_static::lazy_static;
 
 use crate::{
-    key::{Key, Scope, SegmentBuf},
-    Error, KeyValueStoreBackend, ReadStore, Result, TransactionCallback, WriteStore,
+    Error, Key, KeyValueStoreBackend, ReadStore, Result, Scope, SegmentBuf, TransactionCallback,
+    WriteStore,
 };
 
 type MemoryStore = HashMap<Key, serde_json::Value>;

@@ -1,18 +1,17 @@
 use std::fmt::Debug;
 
 use implementations::{disk::Disk, memory::Memory};
-pub use key::{Key, Scope, Segment};
-#[cfg(feature = "queue")]
-pub use queue::{Queue, Task, TaskState};
+pub use kvx_macros::segment;
+pub use kvx_types::{Key, Scope, Segment, SegmentBuf};
 use serde_json::Value;
 use url::Url;
 
 pub use crate::error::Error;
-use crate::key::SegmentBuf;
+// #[cfg(feature = "queue")]
+// pub use crate::queue::{Queue, Task};
 
 mod error;
 mod implementations;
-mod key;
 #[cfg(feature = "queue")]
 mod queue;
 

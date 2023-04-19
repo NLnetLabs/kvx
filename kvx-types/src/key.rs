@@ -3,11 +3,10 @@ use std::{
     str::FromStr,
 };
 
-pub use scope::Scope;
-pub use segment::{ParseSegmentError, Segment, SegmentBuf};
-
-mod scope;
-mod segment;
+use crate::{
+    scope::Scope,
+    segment::{ParseSegmentError, Segment, SegmentBuf},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Key {
