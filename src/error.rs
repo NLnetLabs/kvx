@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::key::ParseSegmentError;
+use kvx_types::ParseSegmentError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

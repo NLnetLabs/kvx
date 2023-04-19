@@ -17,7 +17,7 @@ mod tests {
     use super::{disk::Disk, memory::Memory};
     #[cfg(feature = "postgres")]
     use crate::implementations::postgres::{PgPool, Postgres};
-    use crate::{key::SegmentBuf, Key, KeyValueStoreBackend, Scope};
+    use crate::{Key, KeyValueStoreBackend, Scope, SegmentBuf};
 
     fn test_store(store: impl KeyValueStoreBackend) {
         store

@@ -1,5 +1,5 @@
 [workspace]
-members = ["kvx-macros"]
+members = ["kvx-macros", "kvx-types"]
 
 [package]
 name = "kvx"
@@ -20,6 +20,8 @@ default = ["postgres"]
 postgres = ["dep:postgres", "dep:r2d2_postgres", "dep:postgres-types"]
 
 [dependencies]
+kvx_macros = { path = "kvx-macros", version = "0.3.0" }
+kvx_types = { path = "kvx-types", version = "0.1.0" }
 lazy_static = "1.4"
 rand = "0.8"
 serde_json = "1.0"
