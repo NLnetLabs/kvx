@@ -143,12 +143,10 @@ impl WriteStore for Disk {
 
 impl KeyValueStoreBackend for Disk {
     fn transaction(&self, scope: &Scope, callback: TransactionCallback) -> Result<()> {
-        let lock = FileLock::lock(scope.as_path(&self.root))?;
+        let _lock = FileLock::lock(scope.as_path(&self.root))?;
 
         let mut store = self.clone();
         callback(&mut store)?;
-
-        lock.unlock()?;
 
         Ok(())
     }
