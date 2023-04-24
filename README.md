@@ -1,6 +1,6 @@
 ## Key value store X
 
-Abstraction layer over various key-value store backends in Rust. Taylored to fit the use-cases for [krill](https://github.com/NLnetLabs/krill).
+Abstraction layer over various key-value store backends in Rust. Tailored to fit the use-cases for [Krill](https://github.com/NLnetLabs/krill).
 
 Switching between backends should be as simple as changing a configuration value.
 

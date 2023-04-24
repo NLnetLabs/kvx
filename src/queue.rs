@@ -176,7 +176,7 @@ pub struct Task {
 }
 
 impl Task {
-    fn new(name: &Segment, value: serde_json::Value) -> Self {
+    pub fn new(name: &Segment, value: serde_json::Value) -> Self {
         Self {
             state: TaskState::Submitted(SubmittedTask(name.into())),
             value,
