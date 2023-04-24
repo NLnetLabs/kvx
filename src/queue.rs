@@ -253,7 +253,7 @@ impl Queue for KeyValueStore {
                 });
                 self.move_value(&task.state.into(), &finished.into())
             }
-            _ => todo!("not implemented for this state"),
+            _ => Err(Error::Unknown),
         }
     }
 
