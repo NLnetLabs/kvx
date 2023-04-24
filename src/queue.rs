@@ -41,17 +41,19 @@ impl TaskState {
 impl From<TaskState> for Key {
     fn from(task: TaskState) -> Self {
         let task_name: Key = match task.clone() {
-            TaskState::Pending(t) => t.to_string().parse().unwrap(),
-            TaskState::Running(t) => t.to_string().parse().unwrap(),
-            TaskState::Finished(t) => t.to_string().parse().unwrap(),
-        };
+            TaskState::Pending(t) => t.to_string(),
+            TaskState::Running(t) => t.to_string(),
+            TaskState::Finished(t) => t.to_string(),
+        }
+        .parse()
+        .unwrap();
 
         task_name.with_namespace(task.to_segment())
     }
 }
 
 #[derive(Clone, Debug)]
-struct PendingTask {
+pub struct PendingTask {
     pub task_name: SegmentBuf,
     pub schedule_timestamp: u64,
 }
@@ -97,7 +99,7 @@ impl Display for PendingTask {
 }
 
 #[derive(Clone, Debug)]
-struct RunningTask {
+pub struct RunningTask {
     pub name: PendingTask,
     pub claim_timestamp: u64,
 }
@@ -198,6 +200,8 @@ pub trait Queue {
     ) -> Result<()>;
     fn finished_job(&self, task: Task) -> Result<()>;
     fn claim_job(&self) -> Option<Task>;
+    fn timed_out(&self) -> Vec<RunningTask>;
+    fn reschedule(&self, task: RunningTask) -> Result<()>;
 }
 
 impl Queue for KeyValueStore {
@@ -264,7 +268,7 @@ impl Queue for KeyValueStore {
         let claim_transaction = self.transaction(
             &Scope::global(),
             Box::new(move |s: &dyn KeyValueStoreBackend| {
-                let now = current_time();
+                let now: u64 = current_time();
                 let keys = s.list_keys(&Scope::from_segment(PendingTask::segment()))?;
 
                 let candidate = keys
@@ -311,6 +315,26 @@ impl Queue for KeyValueStore {
                 None
             }
         }
+    }
+
+    fn timed_out(&self) -> Vec<RunningTask> {
+        todo!()
+    }
+
+    fn reschedule(&self, task: RunningTask) -> Result<()> {
+        self.transaction(
+            &Scope::global(),
+            Box::new(move |s: &dyn KeyValueStoreBackend| {
+                let new_task = TaskState::Pending(PendingTask {
+                    task_name: task.name.task_name.clone(),
+                    schedule_timestamp: current_time(),
+                });
+
+                s.move_value(&TaskState::Running(task.clone()).into(), &new_task.into())?;
+
+                Ok(())
+            }),
+        )
     }
 }
 
