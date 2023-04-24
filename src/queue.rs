@@ -184,7 +184,7 @@ pub struct Task {
 
 impl Task {
     pub fn name(&self) -> SegmentBuf {
-        self.state.to_segment().clone()
+        self.state.to_segment()
     }
 }
 
@@ -225,7 +225,7 @@ impl Queue for KeyValueStore {
                     .list_keys(&Scope::from_segment(PendingTask::segment()))?
                     .into_iter()
                     .filter_map(|k| PendingTask::try_from(k).ok())
-                    .find(|p| &p.task_name == &new_task.task_name);
+                    .find(|p| p.task_name == new_task.task_name);
 
                 if let Some(exsisting) = possible_exsisting {
                     // reschedule exsisting task
