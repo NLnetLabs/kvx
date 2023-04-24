@@ -1,12 +1,13 @@
 use std::{
     fmt::{Display, Formatter},
+    str::FromStr,
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
-    segment, Error, Key, KeyValueStore, KeyValueStoreBackend, ReadStore, Result, Scope, Segment,
-    SegmentBuf, WriteStore,
+    Error, Key, KeyValueStore, KeyValueStoreBackend, ReadStore, Result, Scope, Segment, SegmentBuf,
+    WriteStore,
 };
 
 fn current_time() -> u64 {
@@ -18,7 +19,6 @@ fn current_time() -> u64 {
 
 #[derive(Clone, Debug)]
 enum TaskState {
-    Submitted(SubmittedTask),
     Pending(PendingTask),
     Running(RunningTask),
     Finished(FinishedTask),
@@ -29,40 +29,37 @@ impl TaskState {
 }
 
 impl TaskState {
-    fn to_segment(&self) -> &Segment {
+    fn to_segment(&self) -> SegmentBuf {
         match self {
-            TaskState::Pending(_) => PendingTask::SEGMENT,
-            TaskState::Running(_) => RunningTask::SEGMENT,
-            TaskState::Finished(_) => FinishedTask::SEGMENT,
-            _ => todo!(),
+            TaskState::Pending(_) => PendingTask::segment(),
+            TaskState::Running(_) => RunningTask::segment(),
+            TaskState::Finished(_) => FinishedTask::segment(),
         }
     }
 }
 
 impl From<TaskState> for Key {
     fn from(task: TaskState) -> Self {
-        let keyname: Key = match task.clone() {
+        let task_name: Key = match task.clone() {
             TaskState::Pending(t) => t.to_string().parse().unwrap(),
             TaskState::Running(t) => t.to_string().parse().unwrap(),
             TaskState::Finished(t) => t.to_string().parse().unwrap(),
-            _ => panic!(""),
         };
 
-        keyname.with_namespace(task.to_segment())
+        task_name.with_namespace(task.to_segment())
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct SubmittedTask(pub SegmentBuf);
-
-#[derive(Clone, Debug)]
 struct PendingTask {
-    pub keyname: SubmittedTask,
+    pub task_name: SegmentBuf,
     pub schedule_timestamp: u64,
 }
 
 impl PendingTask {
-    const SEGMENT: &Segment = segment!("pending");
+    fn segment() -> SegmentBuf {
+        SegmentBuf::from_str("pending").unwrap()
+    }
 }
 
 impl TryFrom<Key> for PendingTask {
@@ -75,9 +72,15 @@ impl TryFrom<Key> for PendingTask {
             .split_once(TaskState::SEPARATOR)
             .ok_or(Error::InvalidKey)?;
         Ok(PendingTask {
-            keyname: SubmittedTask(Segment::parse(name)?.into()),
+            task_name: Segment::parse(name)?.into(),
             schedule_timestamp: ts.parse().map_err(|_| Error::InvalidKey)?,
         })
+    }
+}
+
+impl PartialEq for PendingTask {
+    fn eq(&self, other: &Self) -> bool {
+        self.task_name == other.task_name
     }
 }
 
@@ -88,7 +91,7 @@ impl Display for PendingTask {
             "{}{}{}",
             self.schedule_timestamp,
             TaskState::SEPARATOR.encode_utf8(&mut [0; 4]),
-            self.keyname.0,
+            self.task_name,
         )
     }
 }
@@ -100,7 +103,9 @@ struct RunningTask {
 }
 
 impl RunningTask {
-    const SEGMENT: &Segment = segment!("running");
+    fn segment() -> SegmentBuf {
+        SegmentBuf::from_str("running").unwrap()
+    }
 }
 
 impl TryFrom<Key> for RunningTask {
@@ -138,7 +143,9 @@ struct FinishedTask {
 }
 
 impl FinishedTask {
-    const SEGMENT: &Segment = segment!("finished");
+    fn segment() -> SegmentBuf {
+        SegmentBuf::from_str("finished").unwrap()
+    }
 }
 
 impl TryFrom<Key> for FinishedTask {
@@ -172,21 +179,23 @@ impl Display for FinishedTask {
 #[derive(Clone, Debug)]
 pub struct Task {
     state: TaskState,
-    value: serde_json::Value,
+    pub value: serde_json::Value,
 }
 
 impl Task {
-    pub fn new(name: &Segment, value: serde_json::Value) -> Self {
-        Self {
-            state: TaskState::Submitted(SubmittedTask(name.into())),
-            value,
-        }
+    pub fn name(&self) -> SegmentBuf {
+        self.state.to_segment().clone()
     }
 }
 
 pub trait Queue {
     fn jobs_remaining(&self) -> Result<usize>;
-    fn schedule_job(&self, task: Task, timestamp: Option<u64>) -> Result<()>;
+    fn schedule_job(
+        &self,
+        task_name: SegmentBuf,
+        value: serde_json::Value,
+        timestamp: Option<u64>,
+    ) -> Result<()>;
     fn finished_job(&self, task: Task) -> Result<()>;
     fn claim_job(&self) -> Option<Task>;
 }
@@ -194,76 +203,44 @@ pub trait Queue {
 impl Queue for KeyValueStore {
     fn jobs_remaining(&self) -> Result<usize> {
         Ok(self
-            .list_keys(&Scope::from_segment(PendingTask::SEGMENT))?
+            .list_keys(&Scope::from_segment(PendingTask::segment()))?
             .len())
     }
 
-    fn schedule_job(&self, task: Task, timestamp: Option<u64>) -> Result<()> {
-        let schedule_timestamp = timestamp.unwrap_or(current_time());
-        match task.state.clone() {
-            TaskState::Submitted(keyname) => {
-                let scheduled = TaskState::Pending(PendingTask {
-                    keyname,
-                    schedule_timestamp,
-                });
-                self.store(&scheduled.into(), task.value)
-            }
-            TaskState::Pending(pending) => {
-                let reschedule_transaction = self.transaction(
-                    &Scope::global(), // TODO use queue scope?
-                    Box::new(move |s: &dyn KeyValueStoreBackend| {
-                        let pending_clone = pending.clone();
-                        let state_clone = task.state.clone();
-                        if s.get(&state_clone.clone().into())?.is_some() {
-                            let rescheduled = TaskState::Pending(PendingTask {
-                                keyname: pending_clone.keyname,
-                                schedule_timestamp,
-                            });
+    fn schedule_job(
+        &self,
+        task_name: SegmentBuf,
+        value: serde_json::Value,
+        timestamp: Option<u64>,
+    ) -> Result<()> {
+        let new_task = PendingTask {
+            task_name,
+            schedule_timestamp: timestamp.unwrap_or(current_time()),
+        };
 
-                            s.move_value(&state_clone.into(), &rescheduled.into())?;
-                        }
+        self.transaction(
+            &Scope::global(),
+            Box::new(move |s: &dyn KeyValueStoreBackend| {
+                let possible_exsisting: Option<PendingTask> = s
+                    .list_keys(&Scope::from_segment(PendingTask::segment()))?
+                    .into_iter()
+                    .filter_map(|k| PendingTask::try_from(k).ok())
+                    .find(|p| &p.task_name == &new_task.task_name);
 
-                        Ok(())
-                    }),
-                );
-
-                match reschedule_transaction {
-                    Err(e) => {
-                        eprintln!("failed to reschedule job {:?}", e);
-                        todo!()
-                    }
-                    _ => Ok(()),
+                if let Some(exsisting) = possible_exsisting {
+                    // reschedule exsisting task
+                    s.move_value(
+                        &TaskState::Pending(exsisting).into(),
+                        &TaskState::Pending(new_task.clone()).into(),
+                    )?;
+                } else {
+                    // store new task
+                    s.store(&TaskState::Pending(new_task.clone()).into(), value.clone())?;
                 }
-            }
-            TaskState::Running(running) => {
-                let reschedule_transaction = self.transaction(
-                    &Scope::global(), // TODO use queue scope?
-                    Box::new(move |s: &dyn KeyValueStoreBackend| {
-                        let running_clone = running.clone();
-                        let state_clone = task.state.clone();
-                        if s.get(&state_clone.clone().into())?.is_some() {
-                            let rescheduled = TaskState::Pending(PendingTask {
-                                keyname: running_clone.name.keyname,
-                                schedule_timestamp,
-                            });
 
-                            s.move_value(&state_clone.into(), &rescheduled.into())?;
-                        }
-
-                        Ok(())
-                    }),
-                );
-
-                match reschedule_transaction {
-                    Err(e) => {
-                        eprintln!("failed to reschedule job {:?}", e);
-                        todo!()
-                    }
-                    _ => Ok(()),
-                }
-            }
-            _ => unimplemented!("not implemented for this state"),
-        }
+                Ok(())
+            }),
+        )
     }
 
     fn finished_job(&self, task: Task) -> Result<()> {
@@ -285,10 +262,10 @@ impl Queue for KeyValueStore {
 
         let claimed_ref = claimed.clone();
         let claim_transaction = self.transaction(
-            &Scope::global(), // TODO use queue scope?
+            &Scope::global(),
             Box::new(move |s: &dyn KeyValueStoreBackend| {
                 let now = current_time();
-                let keys = s.list_keys(&Scope::from_segment(PendingTask::SEGMENT))?;
+                let keys = s.list_keys(&Scope::from_segment(PendingTask::segment()))?;
 
                 let candidate = keys
                     .into_iter()
@@ -345,13 +322,13 @@ mod tests {
     use serde_json::Value;
     use url::Url;
 
-    use super::{FinishedTask, PendingTask, Queue, RunningTask, Task};
-    use crate::{segment, KeyValueStore, ReadStore, Scope, Segment};
+    use super::{FinishedTask, PendingTask, Queue, RunningTask};
+    use crate::{KeyValueStore, ReadStore, Scope, Segment};
 
     fn queue_store() -> KeyValueStore {
         let storage_url = Url::parse("local://data").unwrap();
 
-        KeyValueStore::new(&storage_url, segment!("queue")).unwrap()
+        KeyValueStore::new(&storage_url, Segment::parse("queue").unwrap()).unwrap()
     }
 
     #[test]
@@ -366,16 +343,16 @@ mod tests {
                 for i in 1..=10 {
                     let name = &format!("job-{i}");
                     let segment = Segment::parse(name).unwrap();
-                    let task = Task::new(segment, Value::from("value"));
+                    let value = Value::from("value");
 
-                    queue.schedule_job(task, None).unwrap();
+                    queue.schedule_job(segment.into(), value, None).unwrap();
                     println!("> Scheduled job {}", &name);
                 }
             });
 
             create.join().unwrap();
             let keys = queue
-                .list_keys(&Scope::from_segment(PendingTask::SEGMENT))
+                .list_keys(&Scope::from_segment(PendingTask::segment()))
                 .unwrap();
             assert_eq!(keys.len(), 10);
 
@@ -400,17 +377,17 @@ mod tests {
         });
 
         let pending = queue
-            .list_keys(&Scope::from_segment(PendingTask::SEGMENT))
+            .list_keys(&Scope::from_segment(PendingTask::segment()))
             .unwrap();
         assert_eq!(pending.len(), 0);
 
         let running = queue
-            .list_keys(&Scope::from_segment(RunningTask::SEGMENT))
+            .list_keys(&Scope::from_segment(RunningTask::segment()))
             .unwrap();
         assert_eq!(running.len(), 0);
 
         let finished = queue
-            .list_keys(&Scope::from_segment(FinishedTask::SEGMENT))
+            .list_keys(&Scope::from_segment(FinishedTask::segment()))
             .unwrap();
         assert_eq!(finished.len(), 10);
     }
