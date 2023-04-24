@@ -221,16 +221,16 @@ impl Queue for KeyValueStore {
         self.transaction(
             &Scope::global(),
             Box::new(move |s: &dyn KeyValueStoreBackend| {
-                let possible_exsisting: Option<PendingTask> = s
+                let possible_existing: Option<PendingTask> = s
                     .list_keys(&Scope::from_segment(PendingTask::segment()))?
                     .into_iter()
                     .filter_map(|k| PendingTask::try_from(k).ok())
                     .find(|p| p.task_name == new_task.task_name);
 
-                if let Some(exsisting) = possible_exsisting {
-                    // reschedule exsisting task
+                if let Some(existing) = possible_existing {
+                    // reschedule existing task
                     s.move_value(
-                        &TaskState::Pending(exsisting).into(),
+                        &TaskState::Pending(existing).into(),
                         &TaskState::Pending(new_task.clone()).into(),
                     )?;
                 } else {
