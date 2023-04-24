@@ -1,4 +1,4 @@
-use kvx::Segment;
+use kvx_types::Segment;
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, proc_macro_error};
 use quote::quote;
@@ -10,7 +10,7 @@ pub fn segment(input: TokenStream) -> TokenStream {
     let s = parse_macro_input!(input as LitStr);
 
     match Segment::parse(&s.value()) {
-        Ok(_) => quote!(unsafe { ::kvx::Segment::from_str_unchecked(#s) }).into(),
+        Ok(_) => quote!(unsafe { ::kvx_types::Segment::from_str_unchecked(#s) }).into(),
         Err(error) => abort!(s.span(), "{}", error),
     }
 }

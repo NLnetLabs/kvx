@@ -1,16 +1,15 @@
 use std::fmt::Debug;
 
 use implementations::{disk::Disk, memory::Memory};
-pub use key::{Key, Scope, Segment};
+pub use kvx_macros::segment;
+pub use kvx_types::{Key, Scope, Segment, SegmentBuf};
 use serde_json::Value;
 use url::Url;
 
 pub use crate::error::Error;
-use crate::key::SegmentBuf;
 
 mod error;
 mod implementations;
-mod key;
 
 type Result<T, E = Error> = std::result::Result<T, E>;
 

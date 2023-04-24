@@ -4,7 +4,7 @@ use std::{
     str::FromStr,
 };
 
-use crate::key::{ParseSegmentError, SegmentBuf};
+use crate::segment::{ParseSegmentError, SegmentBuf};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(
@@ -31,12 +31,13 @@ impl Scope {
     }
 
     #[cfg(feature = "postgres")]
-    pub(crate) fn as_vec(&self) -> &Vec<SegmentBuf> {
+    pub fn as_vec(&self) -> &Vec<SegmentBuf> {
         &self.segments
     }
 
     #[cfg(feature = "postgres")]
-    pub(crate) fn len(&self) -> i32 {
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> i32 {
         self.segments.len() as i32
     }
 

@@ -12,7 +12,7 @@ use r2d2_postgres::{
 use url::Url;
 
 use crate::{
-    key::SegmentBuf, Key, KeyValueStoreBackend, ReadStore, Result, Scope, TransactionCallback,
+    Key, KeyValueStoreBackend, ReadStore, Result, Scope, SegmentBuf, TransactionCallback,
     WriteStore,
 };
 
