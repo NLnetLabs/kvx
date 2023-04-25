@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use implementations::{disk::Disk, memory::Memory};
-#[cfg(feature = "kvx_macros")]
+#[cfg(feature = "macros")]
 pub use kvx_macros::segment;
 pub use kvx_types::{Key, Scope, Segment, SegmentBuf};
 #[cfg(feature = "queue")]
