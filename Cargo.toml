@@ -16,9 +16,10 @@ exclude = [
 ]
 
 [features]
-default = ["macros", "postgres"]
+default = ["macros", "postgres", "queue"]
 macros = ["dep:kvx_macros"]
 postgres = ["dep:postgres", "dep:r2d2_postgres", "dep:postgres-types"]
+queue = []
 
 [dependencies]
 kvx_macros = { path = "kvx-macros", version = "0.3.0", optional = true }
