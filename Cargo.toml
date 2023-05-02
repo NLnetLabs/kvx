@@ -3,7 +3,7 @@ members = ["kvx-macros", "kvx-types"]
 
 [package]
 name = "kvx"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "Abstraction layer over various key-value store backends"
 license = "MPL-2.0"
@@ -22,8 +22,8 @@ postgres = ["dep:postgres", "dep:r2d2_postgres", "dep:postgres-types"]
 queue = []
 
 [dependencies]
-kvx_macros = { path = "kvx-macros", version = "0.3.0", optional = true }
-kvx_types = { path = "kvx-types", version = "0.1.0" }
+kvx_macros = { path = "kvx-macros", version = "0.4.0", optional = true }
+kvx_types = { path = "kvx-types", version = "0.4.0" }
 lazy_static = "1.4"
 postgres = { version = "0.19", features = ["with-serde_json-1"], optional = true }
 postgres-types = { version = "0.2", features = ["derive"], optional = true }
