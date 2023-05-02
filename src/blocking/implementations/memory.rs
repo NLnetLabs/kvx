@@ -6,8 +6,8 @@ use std::{
 use lazy_static::lazy_static;
 
 use crate::{
-    Error, Key, KeyValueStoreBackend, ReadStore, Result, Scope, SegmentBuf, TransactionCallback,
-    WriteStore,
+    sync::{KeyValueStoreBackend, ReadStore, TransactionCallback, WriteStore},
+    Error, Key, Result, Scope, SegmentBuf,
 };
 
 type MemoryStore = HashMap<Key, serde_json::Value>;
@@ -18,14 +18,14 @@ lazy_static! {
 }
 
 #[derive(Debug)]
-pub(crate) struct Memory {
+pub struct Memory {
     namespace: SegmentBuf,
     inner: &'static Mutex<MemoryStore>,
     locks: &'static Mutex<Vec<Scope>>,
 }
 
 impl Memory {
-    pub(crate) fn new(namespace: impl Into<SegmentBuf>) -> Self {
+    pub fn new(namespace: impl Into<SegmentBuf>) -> Self {
         Memory {
             namespace: namespace.into(),
             inner: &STORE,
@@ -33,10 +33,15 @@ impl Memory {
         }
     }
 
-    pub(super) fn lock(&self) -> Result<MutexGuard<'_, MemoryStore>> {
+    fn lock(&self) -> Result<MutexGuard<'_, MemoryStore>> {
         self.inner
             .lock()
             .map_err(|e| Error::MutexLock(e.to_string()))
+    }
+
+    pub fn truncate(&self) -> Result<()> {
+        self.lock()?.clear();
+        Ok(())
     }
 }
 

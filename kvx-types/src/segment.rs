@@ -87,8 +87,8 @@ impl Segment {
 
     /// # Safety
     ///
-    /// This function should only be called from the kvx-macros crate - do not
-    /// use directly
+    /// This function should only be called from the kvx-macros crate. Do not
+    /// use it directly, refer to [`kvx_macros::segment!`] instead.
     pub const unsafe fn from_str_unchecked(s: &str) -> &Self {
         &*(s as *const _ as *const Self)
     }

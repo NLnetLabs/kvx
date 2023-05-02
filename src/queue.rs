@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::{
-    Error, Key, KeyValueStore, KeyValueStoreBackend, ReadStore, Result, Scope, Segment, SegmentBuf,
-    WriteStore,
+    sync::{KeyValueStore, KeyValueStoreBackend, ReadStore, WriteStore},
+    Error, Key, Result, Scope, Segment, SegmentBuf,
 };
 
 fn current_time() -> u64 {
@@ -323,7 +323,10 @@ mod tests {
     use url::Url;
 
     use super::{FinishedTask, PendingTask, Queue, RunningTask};
-    use crate::{KeyValueStore, ReadStore, Scope, Segment};
+    use crate::{
+        sync::{KeyValueStore, ReadStore, WriteStore},
+        Scope, Segment,
+    };
 
     fn queue_store() -> KeyValueStore {
         let storage_url = Url::parse("local://data").unwrap();
@@ -334,7 +337,7 @@ mod tests {
     #[test]
     fn queue_thread_workers() {
         let queue = queue_store();
-        queue.inner.clear().unwrap();
+        queue.clear().unwrap();
 
         thread::scope(|s| {
             let create = s.spawn(|| {

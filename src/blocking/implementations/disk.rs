@@ -10,8 +10,8 @@ use std::{
 use serde_json::Value;
 
 use crate::{
-    Error, Key, KeyValueStoreBackend, ReadStore, Result, Scope, SegmentBuf, TransactionCallback,
-    WriteStore,
+    sync::{KeyValueStoreBackend, ReadStore, TransactionCallback, WriteStore},
+    Error, Key, Result, Scope, SegmentBuf,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
