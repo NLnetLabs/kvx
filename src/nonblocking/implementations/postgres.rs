@@ -53,34 +53,25 @@ where
     E: HasExecutor + Send + Sync,
     for<'a> E::Executor<'a>: Send,
 {
-    async fn transaction(&self, _scope: &Scope, callback: TransactionCallback) -> Result<()> {
-        todo!()
-        // const TRIES: usize = 10;
-        //
-        // for i in 0..=TRIES {
-        //     let mut client = self.executor.executor().await?;
-        //     let mut transaction = client.exec_transaction().await?;
-        //     transaction.execute("SET TRANSACTION ISOLATION LEVEL
-        // SERIALIZABLE", &[])?;
-        //
-        //     let mut postgres = Postgres {
-        //         namespace: self.namespace.clone(),
-        //         executor: Mutex::new(transaction),
-        //     };
-        //
-        //     if let Err(e) = callback(&mut postgres).await {
-        //         postgres.executor.into_inner().rollback()?;
-        //
-        //         if i == TRIES {
-        //             Err(e)?;
-        //         }
-        //     } else {
-        //         postgres.executor.into_inner().commit()?;
-        //         break;
-        //     }
-        // }
-        //
-        // Ok(())
+    async fn transaction<'s, 'b>(
+        &'s self,
+        _scope: &Scope,
+        callback: TransactionCallback<'b>,
+    ) -> Result<()> {
+        let mut client = self.executor.executor().await?;
+        let mut transaction = client.exec_transaction().await?;
+        transaction.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", &[])?;
+
+        let postgres = Postgres {
+            namespace: self.namespace.clone(),
+            executor: Mutex::new(transaction),
+        };
+
+        callback(&postgres);
+
+        postgres.executor.into_inner().commit()?;
+
+        Ok(())
     }
 }
 

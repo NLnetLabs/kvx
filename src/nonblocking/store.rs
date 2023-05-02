@@ -1,4 +1,4 @@
-use std::{fmt::Debug, future::Future};
+use std::fmt::Debug;
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -26,17 +26,16 @@ pub trait WriteStore {
     async fn clear(&self) -> Result<()>;
 }
 
-pub type TransactionCallback = Box<
-    dyn Fn(
-            &(dyn KeyValueStoreBackend + Sync),
-        ) -> Box<dyn Future<Output = Result<()>> + Unpin + Send>
-        + Send
-        + Sync,
->;
+pub type TransactionCallback<'a> =
+    Box<dyn Fn(&'a (dyn KeyValueStoreBackend + Sync + 'a)) -> () + Send + Sync + 'a>;
 
 #[async_trait]
 pub trait KeyValueStoreBackend: ReadStore + WriteStore {
-    async fn transaction(&self, scope: &Scope, callback: TransactionCallback) -> Result<()>;
+    async fn transaction<'s, 'b>(
+        &'s self,
+        scope: &Scope,
+        callback: TransactionCallback<'b>,
+    ) -> Result<()>;
 }
 
 pub trait PubKeyValueStoreBackend: KeyValueStoreBackend + Debug + Send + Sync {}
@@ -68,7 +67,11 @@ impl KeyValueStore {
 
 #[async_trait]
 impl KeyValueStoreBackend for KeyValueStore {
-    async fn transaction(&self, scope: &Scope, callback: TransactionCallback) -> Result<()> {
+    async fn transaction<'s, 'b>(
+        &'s self,
+        scope: &Scope,
+        callback: TransactionCallback<'b>,
+    ) -> Result<()> {
         self.inner.transaction(scope, callback).await
     }
 }
