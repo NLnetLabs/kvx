@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 use implementations::{disk::Disk, memory::Memory};
 #[cfg(feature = "macros")]
@@ -42,9 +42,9 @@ pub trait KeyValueStoreBackend: ReadStore + WriteStore {
     fn transaction(&self, scope: &Scope, callback: TransactionCallback) -> Result<()>;
 }
 
-pub trait PubKeyValueStoreBackend: KeyValueStoreBackend + Debug + Send + Sync {}
+pub trait PubKeyValueStoreBackend: KeyValueStoreBackend + Debug + Send + Sync + Display {}
 
-impl<T> PubKeyValueStoreBackend for T where T: KeyValueStoreBackend + Debug + Send + Sync {}
+impl<T> PubKeyValueStoreBackend for T where T: KeyValueStoreBackend + Debug + Send + Sync + Display {}
 
 #[derive(Debug)]
 pub struct KeyValueStore {
@@ -82,6 +82,12 @@ impl KeyValueStore {
         };
 
         Ok(KeyValueStore { inner })
+    }
+}
+
+impl Display for KeyValueStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.inner)
     }
 }
 

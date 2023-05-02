@@ -1,4 +1,5 @@
 use std::{
+    fmt::Display,
     fs,
     fs::{File, OpenOptions},
     ops::{Deref, DerefMut},
@@ -26,6 +27,12 @@ impl Disk {
             fs::create_dir_all(&root)?;
         }
         Ok(Disk { root })
+    }
+}
+
+impl Display for Disk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "KeyValueStore::Disk({})", self.root.to_string_lossy())
     }
 }
 
