@@ -2,6 +2,10 @@
 name = "kvx_types"
 version = "0.4.0"
 edition = "2021"
+description = "Types for kvx: an abstraction layer over various key-value store backends"
+license = "MPL-2.0"
+readme = "README.md"
+repository = "https://github.com/tweedegolf/kvx"
 
 [features]
 default = ["postgres"]
