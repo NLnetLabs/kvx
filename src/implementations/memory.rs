@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeSet, HashMap},
+    fmt::Display,
     sync::{Mutex, MutexGuard},
 };
 
@@ -37,6 +38,12 @@ impl Memory {
         self.inner
             .lock()
             .map_err(|e| Error::MutexLock(e.to_string()))
+    }
+}
+
+impl Display for Memory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "KeyValueStore::Memory({})", self.namespace)
     }
 }
 

@@ -1,6 +1,6 @@
 use std::{
     cell::{RefCell, RefMut},
-    fmt::Debug,
+    fmt::{Debug, Display},
 };
 
 use postgres::{NoTls, Row, ToStatement, Transaction};
@@ -47,10 +47,13 @@ impl Postgres<PgPool> {
     }
 }
 
-impl<E> KeyValueStoreBackend for Postgres<E>
-where
-    E: HasExecutor,
-{
+impl<E: HasExecutor> Display for Postgres<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "KeyValueStore::Postgres({})", self.namespace)
+    }
+}
+
+impl<E: HasExecutor> KeyValueStoreBackend for Postgres<E> {
     fn transaction(&self, _scope: &Scope, callback: TransactionCallback) -> Result<()> {
         const TRIES: usize = 10;
 
