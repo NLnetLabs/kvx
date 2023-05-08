@@ -36,7 +36,8 @@ pub trait WriteStore {
     fn clear(&self) -> Result<()>;
 }
 
-pub(crate) type TransactionCallback = Box<dyn Fn(&dyn KeyValueStoreBackend) -> Result<()>>;
+pub(crate) type TransactionCallback<'s> =
+    &'s mut dyn FnMut(&dyn KeyValueStoreBackend) -> Result<()>;
 
 pub trait KeyValueStoreBackend: ReadStore + WriteStore {
     fn transaction(&self, scope: &Scope, callback: TransactionCallback) -> Result<()>;
