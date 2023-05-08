@@ -6,10 +6,7 @@ pub(crate) mod postgres;
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs, iter,
-        sync::{Arc, Mutex},
-    };
+    use std::{fs, iter};
 
     use rand::{distributions::Alphanumeric, Rng};
     use serde_json::Value;
@@ -266,18 +263,18 @@ mod tests {
             stores.iter_mut().enumerate().for_each(|(index, store)| {
                 let transaction_scope = transaction_scope.clone();
                 s.spawn(move || {
-                    let counter = Arc::new(Mutex::new(0));
-                    let counter_ref = counter.clone();
+                    let mut counter = 0;
+                    let counter_ref = &mut counter;
 
                     let scope_clone = transaction_scope.clone();
 
                     store
                         .transaction(
                             &transaction_scope.clone(),
-                            Box::new(move |t: &dyn KeyValueStoreBackend| {
+                            &mut move |t: &dyn KeyValueStoreBackend| {
                                 let current_counter = t.get(&"counter".parse().unwrap())?.unwrap();
-                                let mut c = counter_ref.lock().unwrap();
-                                *c = serde_json::from_value(current_counter).unwrap();
+                                let c: i32 = serde_json::from_value(current_counter).unwrap();
+                                *counter_ref = c;
 
                                 t.store(
                                     &Key::new_scoped(
@@ -308,28 +305,24 @@ mod tests {
                                     Value::from(format!("value_4_{c}")),
                                 )?;
 
-                                t.store(&"counter".parse().unwrap(), Value::from(*c + 1))?;
+                                t.store(&"counter".parse().unwrap(), Value::from(c + 1))?;
 
                                 Ok(())
-                            }),
+                            },
                         )
                         .unwrap();
-
-                    let c = counter.lock().unwrap();
 
                     let mut result: Vec<Key> =
                         store.list_keys(&scope_clone).unwrap().into_iter().collect();
                     let expected: Vec<Key> = vec![
-                        format!("key_{index}_1_{c}"),
-                        format!("key_{index}_2_{c}"),
-                        format!("key_{index}_3_{c}"),
-                        format!("key_{index}_4_{c}"),
+                        format!("key_{index}_1_{counter}"),
+                        format!("key_{index}_2_{counter}"),
+                        format!("key_{index}_3_{counter}"),
+                        format!("key_{index}_4_{counter}"),
                     ]
                     .iter()
                     .map(|s| Key::new_scoped(scope_clone.clone(), s.parse::<SegmentBuf>().unwrap()))
                     .collect();
-
-                    drop(c);
 
                     result.sort();
 

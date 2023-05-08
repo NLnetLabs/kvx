@@ -1,7 +1,6 @@
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,
-    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -220,7 +219,7 @@ impl Queue for KeyValueStore {
 
         self.transaction(
             &Scope::global(),
-            Box::new(move |s: &dyn KeyValueStoreBackend| {
+            &mut move |s: &dyn KeyValueStoreBackend| {
                 let possible_existing: Option<PendingTask> = s
                     .list_keys(&Scope::from_segment(PendingTask::segment()))?
                     .into_iter()
@@ -239,7 +238,7 @@ impl Queue for KeyValueStore {
                 }
 
                 Ok(())
-            }),
+            },
         )
     }
 
@@ -258,12 +257,12 @@ impl Queue for KeyValueStore {
     }
 
     fn claim_job(&self) -> Option<Task> {
-        let claimed: Arc<Mutex<Option<Task>>> = Arc::new(Mutex::new(None));
+        let mut claimed: Option<Task> = None;
+        let claimed_ref = &mut claimed;
 
-        let claimed_ref = claimed.clone();
         let claim_transaction = self.transaction(
             &Scope::global(),
-            Box::new(move |s: &dyn KeyValueStoreBackend| {
+            &mut move |s: &dyn KeyValueStoreBackend| {
                 let now = current_time();
                 let keys = s.list_keys(&Scope::from_segment(PendingTask::segment()))?;
 
@@ -292,20 +291,16 @@ impl Queue for KeyValueStore {
 
                         s.move_value(&pending.into(), &running_task.state.clone().into())?;
 
-                        let mut claim = claimed_ref.lock().unwrap();
-                        *claim = Some(running_task);
+                        *claimed_ref = Some(running_task);
                     }
                 }
 
                 Ok(())
-            }),
+            },
         );
 
         match claim_transaction {
-            Ok(_) => {
-                let result = claimed.lock().unwrap();
-                result.to_owned()
-            }
+            Ok(_) => claimed,
             Err(e) => {
                 eprintln!("failed to claim job {:?}", e);
                 None
