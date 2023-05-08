@@ -1,7 +1,7 @@
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
@@ -39,19 +39,19 @@ impl TaskState {
 
 impl From<TaskState> for Key {
     fn from(task: TaskState) -> Self {
-        let task_name: Key = match task.clone() {
+        let name: Key = match task.clone() {
             TaskState::Pending(t) => t.to_string().parse().unwrap(),
             TaskState::Running(t) => t.to_string().parse().unwrap(),
             TaskState::Finished(t) => t.to_string().parse().unwrap(),
         };
 
-        task_name.with_namespace(task.to_segment())
+        name.with_namespace(task.to_segment())
     }
 }
 
 #[derive(Clone, Debug)]
 struct PendingTask {
-    pub task_name: SegmentBuf,
+    pub name: SegmentBuf,
     pub schedule_timestamp: u64,
 }
 
@@ -71,7 +71,7 @@ impl TryFrom<Key> for PendingTask {
             .split_once(TaskState::SEPARATOR)
             .ok_or(Error::InvalidKey)?;
         Ok(PendingTask {
-            task_name: Segment::parse(name)?.into(),
+            name: Segment::parse(name)?.into(),
             schedule_timestamp: ts.parse().map_err(|_| Error::InvalidKey)?,
         })
     }
@@ -79,7 +79,7 @@ impl TryFrom<Key> for PendingTask {
 
 impl PartialEq for PendingTask {
     fn eq(&self, other: &Self) -> bool {
-        self.task_name == other.task_name
+        self.name == other.name
     }
 }
 
@@ -90,14 +90,14 @@ impl Display for PendingTask {
             "{}{}{}",
             self.schedule_timestamp,
             TaskState::SEPARATOR.encode_utf8(&mut [0; 4]),
-            self.task_name,
+            self.name,
         )
     }
 }
 
 #[derive(Clone, Debug)]
 struct RunningTask {
-    pub name: PendingTask,
+    pub task_name: PendingTask,
     pub claim_timestamp: u64,
 }
 
@@ -117,7 +117,7 @@ impl TryFrom<Key> for RunningTask {
             .split_once(TaskState::SEPARATOR)
             .ok_or(Error::InvalidKey)?;
         Ok(RunningTask {
-            name: PendingTask::try_from(name.parse::<Key>()?)?,
+            task_name: PendingTask::try_from(name.parse::<Key>()?)?,
             claim_timestamp: ts.parse().map_err(|_| Error::InvalidKey)?,
         })
     }
@@ -130,7 +130,7 @@ impl Display for RunningTask {
             "{}{}{}",
             self.claim_timestamp,
             TaskState::SEPARATOR.encode_utf8(&mut [0; 4]),
-            self.name,
+            self.task_name,
         )
     }
 }
@@ -188,15 +188,23 @@ impl Task {
 }
 
 pub trait Queue {
+    const RESCHEDULE_AFTER: Duration = Duration::from_secs(15 * 60);
+    const REMOVE_AFTER: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
     fn jobs_remaining(&self) -> Result<usize>;
     fn schedule_job(
         &self,
-        task_name: SegmentBuf,
+        name: SegmentBuf,
         value: serde_json::Value,
         timestamp: Option<u64>,
     ) -> Result<()>;
     fn finished_job(&self, task: Task) -> Result<()>;
     fn claim_job(&self) -> Option<Task>;
+    fn cleanup(
+        &self,
+        reschedule_after: Option<&Duration>,
+        remove_after: Option<&Duration>,
+    ) -> Result<()>;
 }
 
 impl Queue for KeyValueStore {
@@ -208,12 +216,12 @@ impl Queue for KeyValueStore {
 
     fn schedule_job(
         &self,
-        task_name: SegmentBuf,
+        name: SegmentBuf,
         value: serde_json::Value,
         timestamp: Option<u64>,
     ) -> Result<()> {
         let new_task = PendingTask {
-            task_name,
+            name,
             schedule_timestamp: timestamp.unwrap_or(current_time()),
         };
 
@@ -224,7 +232,7 @@ impl Queue for KeyValueStore {
                     .list_keys(&Scope::from_segment(PendingTask::segment()))?
                     .into_iter()
                     .filter_map(|k| PendingTask::try_from(k).ok())
-                    .find(|p| p.task_name == new_task.task_name);
+                    .find(|p| p.name == new_task.name);
 
                 if let Some(existing) = possible_existing {
                     // reschedule existing task
@@ -245,9 +253,9 @@ impl Queue for KeyValueStore {
     fn finished_job(&self, task: Task) -> Result<()> {
         let finish_timestamp = current_time();
         match task.state.clone() {
-            TaskState::Running(RunningTask { name, .. }) => {
+            TaskState::Running(RunningTask { task_name, .. }) => {
                 let finished = TaskState::Finished(FinishedTask {
-                    name,
+                    name: task_name,
                     finish_timestamp,
                 });
                 self.move_value(&task.state.into(), &finished.into())
@@ -283,7 +291,7 @@ impl Queue for KeyValueStore {
                     if let Some(value) = s.get(&pending.clone().into())? {
                         let running_task = Task {
                             state: TaskState::Running(RunningTask {
-                                name,
+                                task_name: name,
                                 claim_timestamp: now,
                             }),
                             value,
@@ -306,6 +314,72 @@ impl Queue for KeyValueStore {
                 None
             }
         }
+    }
+
+    fn cleanup(
+        &self,
+        reschedule_after: Option<&Duration>,
+        remove_after: Option<&Duration>,
+    ) -> Result<()> {
+        let now = current_time();
+
+        let reschedule_after = reschedule_after.unwrap_or(&KeyValueStore::RESCHEDULE_AFTER);
+        let reschedule_timeout = now - reschedule_after.as_secs();
+
+        self.transaction(
+            &Scope::global(),
+            &mut move |s: &dyn KeyValueStoreBackend| {
+                s.list_keys(&Scope::from_segment(RunningTask::segment()))?
+                    .into_iter()
+                    .filter_map(|k| {
+                        let task = RunningTask::try_from(k).ok()?;
+                        if task.claim_timestamp <= reschedule_timeout {
+                            Some(task)
+                        } else {
+                            None
+                        }
+                    })
+                    .for_each(|running: RunningTask| {
+                        let pending = PendingTask {
+                            name: running.task_name.name.clone(),
+                            schedule_timestamp: now,
+                        };
+
+                        let _ = s.move_value(
+                            &TaskState::Running(running).into(),
+                            &TaskState::Pending(pending).into(),
+                        );
+                    });
+
+                Ok(())
+            },
+        )?;
+
+        let remove_after = remove_after.unwrap_or(&KeyValueStore::REMOVE_AFTER);
+        let remove_timeout = now - remove_after.as_secs();
+
+        self.transaction(
+            &Scope::global(),
+            &mut move |s: &dyn KeyValueStoreBackend| {
+                s.list_keys(&Scope::from_segment(FinishedTask::segment()))?
+                    .into_iter()
+                    .filter_map(|k| {
+                        let task = FinishedTask::try_from(k).ok()?;
+                        if task.finish_timestamp <= remove_timeout {
+                            Some(task)
+                        } else {
+                            None
+                        }
+                    })
+                    .for_each(|finished: FinishedTask| {
+                        let _ = s.delete(&TaskState::Finished(finished).into());
+                    });
+
+                Ok(())
+            },
+        )?;
+
+        Ok(())
     }
 }
 
