@@ -198,6 +198,7 @@ pub trait Queue {
         value: serde_json::Value,
         timestamp: Option<u64>,
     ) -> Result<()>;
+    fn exists(&self, name: SegmentBuf) -> Option<u64>;
     fn finished_job(&self, task: Task) -> Result<()>;
     fn claim_job(&self) -> Option<Task>;
     fn cleanup(
@@ -277,9 +278,9 @@ impl Queue for KeyValueStore {
                 let candidate = keys
                     .into_iter()
                     .filter_map(|k| {
-                        let state = PendingTask::try_from(k).ok()?;
-                        if state.schedule_timestamp <= now {
-                            Some(state)
+                        let task = PendingTask::try_from(k).ok()?;
+                        if task.schedule_timestamp <= now {
+                            Some(task)
                         } else {
                             None
                         }
@@ -381,11 +382,21 @@ impl Queue for KeyValueStore {
 
         Ok(())
     }
+
+    fn exists(&self, name: SegmentBuf) -> Option<u64> {
+        self
+            .list_keys(&Scope::from_segment(PendingTask::segment()))
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|k| PendingTask::try_from(k).ok())
+            .find(|p| p.name == name)
+            .map(|p| p.schedule_timestamp)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::thread;
+    use std::{thread, time::Duration};
 
     use kvx_types::Key;
     use serde_json::Value;
@@ -394,20 +405,20 @@ mod tests {
     use super::{FinishedTask, PendingTask, Queue, RunningTask};
     use crate::{KeyValueStore, ReadStore, Scope, Segment};
 
-    fn queue_store() -> KeyValueStore {
+    fn queue_store(ns: &str) -> KeyValueStore {
         let storage_url = Url::parse("local://data").unwrap();
 
-        KeyValueStore::new(&storage_url, Segment::parse("queue").unwrap()).unwrap()
+        KeyValueStore::new(&storage_url, Segment::parse(ns).unwrap()).unwrap()
     }
 
     #[test]
     fn queue_thread_workers() {
-        let queue = queue_store();
+        let queue = queue_store("test_queue");
         queue.inner.clear().unwrap();
 
         thread::scope(|s| {
             let create = s.spawn(|| {
-                let queue = queue_store();
+                let queue = queue_store("test_queue");
 
                 for i in 1..=10 {
                     let name = &format!("job-{i}");
@@ -427,7 +438,7 @@ mod tests {
 
             for i in 1..=10 {
                 s.spawn(move || {
-                    let queue = queue_store();
+                    let queue = queue_store("test_queue");
 
                     while queue.jobs_remaining().unwrap() > 0 {
                         if let Some(task) = queue.claim_job() {
@@ -459,5 +470,38 @@ mod tests {
             .list_keys(&Scope::from_segment(FinishedTask::segment()))
             .unwrap();
         assert_eq!(finished.len(), 10);
+    }
+
+
+    #[test]
+    fn test_cleanup() {
+        let queue = queue_store("test_cleanup_queue");
+        queue.inner.clear().unwrap();
+        
+        let name = &format!("job");
+        let segment = Segment::parse(name).unwrap();
+        let value = Value::from("value");
+
+        queue.schedule_job(segment.into(), value, None).unwrap();
+
+        assert_eq!(queue.jobs_remaining().unwrap(), 1);
+
+        let job = queue.claim_job();
+
+        assert!(job.is_some());
+        assert_eq!(queue.jobs_remaining().unwrap(), 0);
+
+        let job = queue.claim_job();
+
+        assert!(job.is_none());
+
+        queue.cleanup(Some(&Duration::from_secs(0)), None).unwrap();
+
+        assert_eq!(queue.jobs_remaining().unwrap(), 1);
+
+        let job = queue.claim_job();
+
+        assert!(job.is_some());
+        assert_eq!(queue.jobs_remaining().unwrap(), 0);
     }
 }
