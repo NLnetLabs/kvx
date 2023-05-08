@@ -384,8 +384,7 @@ impl Queue for KeyValueStore {
     }
 
     fn exists(&self, name: SegmentBuf) -> Option<u64> {
-        self
-            .list_keys(&Scope::from_segment(PendingTask::segment()))
+        self.list_keys(&Scope::from_segment(PendingTask::segment()))
             .unwrap_or_default()
             .into_iter()
             .filter_map(|k| PendingTask::try_from(k).ok())
@@ -472,12 +471,11 @@ mod tests {
         assert_eq!(finished.len(), 10);
     }
 
-
     #[test]
     fn test_cleanup() {
         let queue = queue_store("test_cleanup_queue");
         queue.inner.clear().unwrap();
-        
+
         let name = &format!("job");
         let segment = Segment::parse(name).unwrap();
         let value = Value::from("value");
