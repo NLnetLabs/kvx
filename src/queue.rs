@@ -476,7 +476,7 @@ mod tests {
         let queue = queue_store("test_cleanup_queue");
         queue.inner.clear().unwrap();
 
-        let name = &format!("job");
+        let name = "job";
         let segment = Segment::parse(name).unwrap();
         let value = Value::from("value");
 
