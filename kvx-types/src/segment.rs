@@ -66,6 +66,22 @@ impl From<&Segment> for SegmentBuf {
 pub struct Segment(str);
 
 impl Segment {
+    /// Parse a Segment from a string.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use kvx_types::ParseSegmentError;
+    /// use kvx_types::Segment;
+    ///
+    /// # fn main() -> Result<(), ParseSegmentError> {
+    /// Segment::parse("segment")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    /// If the string is empty, starts or ends with whitespace, or contains a
+    /// [`Scope::SEPARATOR`] a [`ParseSegmentError`] variant will be returned.
     pub const fn parse(value: &str) -> Result<&Self, ParseSegmentError> {
         if value.is_empty() {
             Err(ParseSegmentError::Empty)
@@ -81,14 +97,31 @@ impl Segment {
         }
     }
 
+    /// Return the encapsulated string.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use kvx_types::ParseSegmentError;
+    /// use kvx_types::Segment;
+    ///
+    /// # fn main() -> Result<(), ParseSegmentError> {
+    /// let segment_str = "segment";
+    /// let segment = Segment::parse(segment_str)?;
+    /// assert_eq!(segment.as_str(), segment_str);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
-    /// # Safety
+    /// Creates a Segment from a string without performing any checks.
     ///
-    /// This function should only be called from the kvx-macros crate - do not
-    /// use directly
+    /// # Safety
+    /// This function should only be called from the [`kvx_macros`] crate - do
+    /// not use directly.
+    ///
+    /// [`kvx_macros`]: ../kvx_macros/index.html
     pub const unsafe fn from_str_unchecked(s: &str) -> &Self {
         &*(s as *const _ as *const Self)
     }
@@ -129,6 +162,7 @@ impl ToOwned for Segment {
     }
 }
 
+/// Represents all ways parsing a string as a [`Segment`] can fail.
 #[derive(Debug, Error)]
 pub enum ParseSegmentError {
     #[error("segments must not start or end with whitespace")]

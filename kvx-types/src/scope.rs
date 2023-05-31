@@ -6,6 +6,10 @@ use std::{
 
 use crate::segment::{ParseSegmentError, SegmentBuf};
 
+/// Used to scope a [`Key`]. Consists of a vector of zero or more
+/// [`SegmentBuf`]s.
+///
+/// [`Key`]: crate::Key
 #[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(
     feature = "postgres",
@@ -16,40 +20,91 @@ pub struct Scope {
 }
 
 impl Scope {
+    /// Character used to split on when parsing a Scope from a string.
     pub const SEPARATOR: char = '/';
 
+    /// Create a `Scope` from a single [`Segment`].
+    ///
+    /// # Example
+    /// ```rust
+    /// # use kvx_types::ParseSegmentError;
+    /// use kvx_types::{Scope, Segment};
+    ///
+    /// # fn main() -> Result<(), ParseSegmentError> {
+    /// Scope::from_segment(Segment::parse("segment")?);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// [`Segment`]: ../kvx/struct.Segment.html
     pub fn from_segment(segment: impl Into<SegmentBuf>) -> Self {
         Scope::new(vec![segment.into()])
     }
 
+    /// Create an empty `Scope`.
+    ///
+    /// # Example
+    /// ```rust
+    /// use kvx_types::Scope;
+    ///
+    /// # fn main() {
+    /// Scope::global();
+    /// # }
+    /// ```
+    ///
+    /// [`Segment`]: ../kvx/struct.Segment.html
     pub fn global() -> Self {
         Scope::new(Vec::new())
     }
 
+    /// Create a `Scope` from a vector of [`SegmentBuf`]s.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use kvx_types::ParseSegmentError;
+    /// use kvx_types::{Scope, Segment};
+    ///
+    /// # fn main() -> Result<(), ParseSegmentError> {
+    /// Scope::new(vec![Segment::parse("segment1")?.to_owned(), Segment::parse("segment2")?.to_owned()]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// [`SegmentBuf`]: ../kvx/struct.SegmentBuf.html
     pub fn new(segments: Vec<SegmentBuf>) -> Self {
         Scope { segments }
     }
 
+    /// Returns the underlying vector of [`SegmentBuf`]s.
+    ///
+    /// [`SegmentBuf`]: ../kvx/struct.SegmentBuf.html
     #[cfg(feature = "postgres")]
     pub fn as_vec(&self) -> &Vec<SegmentBuf> {
         &self.segments
     }
 
+    /// Returns the length of the underlying vector.
     #[cfg(feature = "postgres")]
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> i32 {
         self.segments.len() as i32
     }
 
+    /// Returns whether the underlying vector is empty.
     pub fn is_global(&self) -> bool {
         self.segments.is_empty()
     }
 
+    /// Two scopes match if the longest of the two contains all [`Segment`]s
+    /// of the other.
+    ///
+    /// [`Segment`]: ../kvx/struct.Segment.html
     pub fn matches(&self, other: &Self) -> bool {
         let min_len = cmp::min(self.segments.len(), other.segments.len());
         self.segments[0..min_len] == other.segments[0..min_len]
     }
 
+    /// Returns whether the encapsulated vector starts with a certain prefix.
     pub fn starts_with(&self, prefix: &Self) -> bool {
         if prefix.segments.len() <= self.segments.len() {
             self.segments[0..prefix.segments.len()] == prefix.segments
@@ -58,6 +113,7 @@ impl Scope {
         }
     }
 
+    /// Returns a vector of all prefixes of the scope.
     pub fn sub_scopes(&self) -> Vec<Scope> {
         self.segments
             .iter()
@@ -68,26 +124,42 @@ impl Scope {
             .collect()
     }
 
+    /// Create a new [`Scope`] and add a [`Segment`] to the end of it.
+    ///
+    /// [`Segment`]: ../kvx/struct.Segment.html
     pub fn with_sub_scope(&self, namespace: impl Into<SegmentBuf>) -> Self {
         let mut clone = self.clone();
         clone.add_sub_scope(namespace);
         clone
     }
 
+    /// Add a [`Segment`] to the end of the scope.
+    ///
+    /// [`Segment`]: ../kvx/struct.Segment.html
     pub fn add_sub_scope(&mut self, sub_scope: impl Into<SegmentBuf>) {
         self.segments.push(sub_scope.into());
     }
 
+    /// Create a new [`Scope`] and add a [`Segment`] to the front of it.
+    ///
+    /// [`Segment`]: ../kvx/struct.Segment.html
     pub fn with_namespace(&self, namespace: impl Into<SegmentBuf>) -> Self {
         let mut clone = self.clone();
         clone.add_namespace(namespace);
         clone
     }
 
+    /// Add a [`Segment`] to the front of the scope.
+    ///
+    /// [`Segment`]: ../kvx/struct.Segment.html
     pub fn add_namespace(&mut self, namespace: impl Into<SegmentBuf>) {
         self.segments.insert(0, namespace.into());
     }
 
+    /// Remove the first [`Segment`] if it matches the given. Returns
+    /// `Some(Segment)` if it matches, `None` otherwise.
+    ///
+    /// [`Segment`]: ../kvx/struct.Segment.html
     pub fn remove_namespace(&mut self, namespace: impl Into<SegmentBuf>) -> Option<SegmentBuf> {
         if *self.segments.get(0)? == namespace.into() {
             Some(self.segments.remove(0))
