@@ -1,12 +1,11 @@
 use std::{
     fmt::{Display, Formatter},
-    str::FromStr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
-    Error, Key, KeyValueStore, KeyValueStoreBackend, ReadStore, Result, Scope, Segment, SegmentBuf,
-    WriteStore,
+    segment, Error, Key, KeyValueStore, KeyValueStoreBackend, ReadStore, Result, Scope, Segment,
+    SegmentBuf, WriteStore,
 };
 
 fn current_time() -> u64 {
@@ -28,11 +27,11 @@ impl TaskState {
 }
 
 impl TaskState {
-    fn to_segment(&self) -> SegmentBuf {
+    fn to_segment(&self) -> &Segment {
         match self {
-            TaskState::Pending(_) => PendingTask::segment(),
-            TaskState::Running(_) => RunningTask::segment(),
-            TaskState::Finished(_) => FinishedTask::segment(),
+            TaskState::Pending(_) => PendingTask::SEGMENT,
+            TaskState::Running(_) => RunningTask::SEGMENT,
+            TaskState::Finished(_) => FinishedTask::SEGMENT,
         }
     }
 }
@@ -56,9 +55,7 @@ struct PendingTask {
 }
 
 impl PendingTask {
-    fn segment() -> SegmentBuf {
-        SegmentBuf::from_str("pending").unwrap()
-    }
+    const SEGMENT: &Segment = segment!("pending");
 }
 
 impl TryFrom<Key> for PendingTask {
@@ -102,9 +99,7 @@ struct RunningTask {
 }
 
 impl RunningTask {
-    fn segment() -> SegmentBuf {
-        SegmentBuf::from_str("running").unwrap()
-    }
+    const SEGMENT: &Segment = segment!("running");
 }
 
 impl TryFrom<Key> for RunningTask {
@@ -142,9 +137,7 @@ struct FinishedTask {
 }
 
 impl FinishedTask {
-    fn segment() -> SegmentBuf {
-        SegmentBuf::from_str("finished").unwrap()
-    }
+    const SEGMENT: &Segment = segment!("finished");
 }
 
 impl TryFrom<Key> for FinishedTask {
@@ -182,7 +175,7 @@ pub struct Task {
 }
 
 impl Task {
-    pub fn name(&self) -> SegmentBuf {
+    pub fn name(&self) -> &Segment {
         self.state.to_segment()
     }
 }
@@ -211,7 +204,7 @@ pub trait Queue {
 impl Queue for KeyValueStore {
     fn jobs_remaining(&self) -> Result<usize> {
         Ok(self
-            .list_keys(&Scope::from_segment(PendingTask::segment()))?
+            .list_keys(&Scope::from_segment(PendingTask::SEGMENT))?
             .len())
     }
 
@@ -230,7 +223,7 @@ impl Queue for KeyValueStore {
             &Scope::global(),
             &mut move |s: &dyn KeyValueStoreBackend| {
                 let possible_existing: Option<PendingTask> = s
-                    .list_keys(&Scope::from_segment(PendingTask::segment()))?
+                    .list_keys(&Scope::from_segment(PendingTask::SEGMENT))?
                     .into_iter()
                     .filter_map(|k| PendingTask::try_from(k).ok())
                     .find(|p| p.name == new_task.name);
@@ -273,7 +266,7 @@ impl Queue for KeyValueStore {
             &Scope::global(),
             &mut move |s: &dyn KeyValueStoreBackend| {
                 let now = current_time();
-                let keys = s.list_keys(&Scope::from_segment(PendingTask::segment()))?;
+                let keys = s.list_keys(&Scope::from_segment(PendingTask::SEGMENT))?;
 
                 let candidate = keys
                     .into_iter()
@@ -330,7 +323,7 @@ impl Queue for KeyValueStore {
         self.transaction(
             &Scope::global(),
             &mut move |s: &dyn KeyValueStoreBackend| {
-                s.list_keys(&Scope::from_segment(RunningTask::segment()))?
+                s.list_keys(&Scope::from_segment(RunningTask::SEGMENT))?
                     .into_iter()
                     .filter_map(|k| {
                         let task = RunningTask::try_from(k).ok()?;
@@ -362,7 +355,7 @@ impl Queue for KeyValueStore {
         self.transaction(
             &Scope::global(),
             &mut move |s: &dyn KeyValueStoreBackend| {
-                s.list_keys(&Scope::from_segment(FinishedTask::segment()))?
+                s.list_keys(&Scope::from_segment(FinishedTask::SEGMENT))?
                     .into_iter()
                     .filter_map(|k| {
                         let task = FinishedTask::try_from(k).ok()?;
@@ -384,7 +377,7 @@ impl Queue for KeyValueStore {
     }
 
     fn exists(&self, name: SegmentBuf) -> Option<u64> {
-        self.list_keys(&Scope::from_segment(PendingTask::segment()))
+        self.list_keys(&Scope::from_segment(PendingTask::SEGMENT))
             .unwrap_or_default()
             .into_iter()
             .filter_map(|k| PendingTask::try_from(k).ok())
@@ -431,7 +424,7 @@ mod tests {
 
             create.join().unwrap();
             let keys = queue
-                .list_keys(&Scope::from_segment(PendingTask::segment()))
+                .list_keys(&Scope::from_segment(PendingTask::SEGMENT))
                 .unwrap();
             assert_eq!(keys.len(), 10);
 
@@ -456,17 +449,17 @@ mod tests {
         });
 
         let pending = queue
-            .list_keys(&Scope::from_segment(PendingTask::segment()))
+            .list_keys(&Scope::from_segment(PendingTask::SEGMENT))
             .unwrap();
         assert_eq!(pending.len(), 0);
 
         let running = queue
-            .list_keys(&Scope::from_segment(RunningTask::segment()))
+            .list_keys(&Scope::from_segment(RunningTask::SEGMENT))
             .unwrap();
         assert_eq!(running.len(), 0);
 
         let finished = queue
-            .list_keys(&Scope::from_segment(FinishedTask::segment()))
+            .list_keys(&Scope::from_segment(FinishedTask::SEGMENT))
             .unwrap();
         assert_eq!(finished.len(), 10);
     }

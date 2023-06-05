@@ -1,0 +1,5 @@
+error: segments must be nonempty
+ --> tests/macro/fail-empty.rs:4:36
+  |
+4 | const SEGMENT: &Segment = segment!("");
+  |                                    ^^
