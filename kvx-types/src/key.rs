@@ -8,6 +8,8 @@ use crate::{
     segment::{ParseSegmentError, Segment, SegmentBuf},
 };
 
+/// Represents the key used in KVx. Consists of a `scope` of type [`Scope`] and
+/// a `name` of type [`SegmentBuf`].
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Key {
     scope: Scope,
@@ -15,6 +17,21 @@ pub struct Key {
 }
 
 impl Key {
+    /// Create a `Key` from a [`Scope`] and a [`Segment`].
+    ///
+    /// # Example
+    /// ```rust
+    /// # use kvx_types::ParseSegmentError;
+    /// use kvx_types::{Key, Scope, Segment};
+    ///
+    /// # fn main() -> Result<(), ParseSegmentError> {
+    /// Key::new_scoped(Scope::global(), Segment::parse("keyname")?);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// [`Scope`]: ../kvx/struct.Scope.html
+    /// [`Segment`]: ../kvx/struct.Segment.html
     pub fn new_scoped(scope: Scope, name: impl Into<SegmentBuf>) -> Key {
         Key {
             name: name.into(),
@@ -22,38 +39,60 @@ impl Key {
         }
     }
 
+    /// Create a `Key` from a [`Segment`].
+    ///
+    /// # Example
+    /// ```rust
+    /// # use kvx_types::ParseSegmentError;
+    /// use kvx_types::{Key, Segment};
+    ///
+    /// # fn main() -> Result<(), ParseSegmentError> {
+    /// Key::new_global(Segment::parse("keyname")?);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// [`Segment`]: ../kvx/struct.Segment.html
     pub fn new_global(name: impl Into<SegmentBuf>) -> Key {
         Key::new_scoped(Scope::default(), name)
     }
 
+    /// Returns the name of a `Key` (without its scope).
     pub fn name(&self) -> &Segment {
         &self.name
     }
 
+    /// Returns the scope of a `Key` (without its name).
     pub fn scope(&self) -> &Scope {
         &self.scope
     }
 
+    /// Create a new [`Key`] and add a [`Segment`] to the end of its scope.
     pub fn with_sub_scope(&self, sub_scope: impl Into<SegmentBuf>) -> Self {
         let mut clone = self.clone();
         clone.add_sub_scope(sub_scope);
         clone
     }
 
+    /// Add a [`Segment`] to the end of the scope of the key.
     pub fn add_sub_scope(&mut self, sub_scope: impl Into<SegmentBuf>) {
         self.scope.add_sub_scope(sub_scope);
     }
 
+    /// Create a new [`Key`] and add a [`Segment`] to the front of its scope.
     pub fn with_namespace(&self, namespace: impl Into<SegmentBuf>) -> Self {
         let mut clone = self.clone();
         clone.add_namespace(namespace);
         clone
     }
 
+    /// Add a [`Segment`] to the front of the scope of the key.
     pub fn add_namespace(&mut self, namespace: impl Into<SegmentBuf>) {
         self.scope.add_namespace(namespace);
     }
 
+    /// Remove the first [`Segment`] of the scope of the key if it matches the
+    /// given. Returns `Some(Segment)` if it matches, `None` otherwise.
     pub fn remove_namespace(&mut self, namespace: impl Into<SegmentBuf>) -> Option<SegmentBuf> {
         self.scope.remove_namespace(namespace)
     }

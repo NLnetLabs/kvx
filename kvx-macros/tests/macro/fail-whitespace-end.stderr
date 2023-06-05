@@ -1,0 +1,5 @@
+error: segments must not start or end with whitespace
+ --> tests/macro/fail-whitespace-end.rs:4:36
+  |
+4 | const SEGMENT: &Segment = segment!("test ");
+  |                                    ^^^^^^^
