@@ -18,6 +18,7 @@ mod queue;
 
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
+/// Read operations of a store
 pub trait ReadStore {
     fn has(&self, key: &Key) -> Result<bool>;
     fn has_scope(&self, scope: &Scope) -> Result<bool>;
@@ -26,6 +27,7 @@ pub trait ReadStore {
     fn list_scopes(&self) -> Result<Vec<Scope>>;
 }
 
+/// Read operations of a store
 pub trait WriteStore {
     fn store(&self, key: &Key, value: Value) -> Result<()>;
     fn move_value(&self, from: &Key, to: &Key) -> Result<()>;
@@ -39,6 +41,7 @@ pub trait WriteStore {
 pub(crate) type TransactionCallback<'s> =
     &'s mut dyn FnMut(&dyn KeyValueStoreBackend) -> Result<()>;
 
+/// Read, Write and Transaction operations of a store
 pub trait KeyValueStoreBackend: ReadStore + WriteStore {
     fn transaction(&self, scope: &Scope, callback: TransactionCallback) -> Result<()>;
 }
@@ -47,6 +50,22 @@ pub trait PubKeyValueStoreBackend: KeyValueStoreBackend + Debug + Send + Sync + 
 
 impl<T> PubKeyValueStoreBackend for T where T: KeyValueStoreBackend + Debug + Send + Sync + Display {}
 
+/// Represents a key-value store, wraps a backend
+///
+/// # Example
+/// ```
+/// use kvx::{Segment, KeyValueStore};
+/// use url::Url;
+/// // use an in-memory backend
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let store = KeyValueStore::new(&Url::parse("memory://")?, Segment::parse("ns")?)?;
+///
+/// // use a file backend
+/// let store = KeyValueStore::new(&Url::parse("local://tmp")?, Segment::parse("ns")?)?;
+///
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct KeyValueStore {
     inner: Box<dyn PubKeyValueStoreBackend>,
