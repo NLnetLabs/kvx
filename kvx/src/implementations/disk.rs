@@ -170,7 +170,7 @@ impl AsPath for Key {
         for segment in self.scope() {
             path.push(segment.as_str());
         }
-        path.push(format!("{}.json", self.name()));
+        path.push(self.name().as_str());
         path
     }
 }
@@ -199,11 +199,7 @@ impl PathBufExt for PathBuf {
             .to_string_lossy()
             .to_string();
 
-        let name: SegmentBuf = file_name
-            .strip_suffix(".json")
-            .map(|s| s.to_string())
-            .unwrap_or(file_name)
-            .parse()?;
+        let name: SegmentBuf = file_name.parse()?;
 
         let scope = self
             .parent()
