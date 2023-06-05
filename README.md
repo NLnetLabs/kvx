@@ -45,7 +45,7 @@ fn delete_scope(&self, scope: &Scope) -> Result<()>;
 fn clear(&self) -> Result<()>;
 ```
 
-Transactions can be used to atomcily perform a sequence of operations:
+Transactions can be used to atomically perform a sequence of operations:
 
 ```rust
 store.transaction(scope, &mut move |t: &dyn KeyValueStoreBackend| { 
@@ -66,15 +66,16 @@ fn schedule_job(
     value: serde_json::Value,
     timestamp: Option<u64>,
 ) -> Result<()>;
-/// check the number of unclaimed jopbs
+/// check the number of unclaimed jobs
 fn jobs_remaining(&self) -> Result<usize>;
-/// check a certain job exsists
+/// check a certain job exists, return the scheduled timestamp
 fn exists(&self, name: SegmentBuf) -> Option<u64>;
-/// check a job is finished
-fn finished_job(&self, task: Task) -> Result<()>;
-/// claim a job
+/// claim an available job (this method checks the scheduled timestamp of jobs)
 fn claim_job(&self) -> Option<Task>;
+/// mark job as finished (done by the runner)
+fn finished_job(&self, task: Task) -> Result<()>;
 /// cleanup finished jobs and reschedule timed-out jobs
+/// (by default job are rescheduled after 15 minutes of inactivity, finished jobs are removed after 7 days by default)
 fn cleanup(
     &self,
     reschedule_after: Option<&Duration>,
