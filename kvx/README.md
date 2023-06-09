@@ -100,6 +100,14 @@ assert_eq!(queue.jobs_remaining().unwrap(), 0);
 
 ## Changelog
 
+### Version 0.7.0
+
+No functional changes were made, but the following updates were done
+for the published crate on crates.io:
+- Fix the reported license, it's BSD-3
+- Update the GitHub repository link to the current location
+- Update Readme files for better readability on crates.io
+
 ### Version 0.6.0
 
 Breaking changes:
