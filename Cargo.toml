@@ -2,7 +2,7 @@
 members = ["kvx", "kvx-macros", "kvx-types"]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 license = "MPL-2.0"
 repository = "https://github.com/tweedegolf/kvx"
