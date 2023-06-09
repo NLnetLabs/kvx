@@ -23,7 +23,7 @@ let store = KeyValueStore::new(&Url::parse("local://tmp")?, namespace)?;
 let store = KeyValueStore::new(&Url::parse("postgres://user:password@host/database-name")?, namespace)?;
 ```
 
-A store can be scoped using a namespace. A namespaces can be further devided up in (possibly nested) scopes.
+A store can be scoped using a namespace. A namespaces can be further divided up in (possibly nested) scopes.
 
 Note that keys, scopes and namespaces have the `Segment` type, this is necessary to encode namespaces, scopes and keys to the filesystem.
 
@@ -97,6 +97,13 @@ let job = queue.claim_job();
 assert!(job.is_some());
 assert_eq!(queue.jobs_remaining().unwrap(), 0);
 ```
+
+## Changelog
+
+### Version 0.6.0
+
+Breaking changes:
+- Implicit .json extension for keys on disk were removed (see PR #32)
 
 ## Development
 
