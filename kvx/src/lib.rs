@@ -105,7 +105,9 @@ impl KeyValueStore {
     }
 
     pub fn execute<F, T>(&self, scope: &Scope, mut op: F) -> Result<T>
-    where F: FnMut(&dyn KeyValueStoreBackend) -> Result<T, Error>  {
+    where
+        F: FnMut(&dyn KeyValueStoreBackend) -> Result<T, Error>,
+    {
         let mut res = None;
         self.transaction(scope, &mut |store| {
             res = Some(op(store)?);
@@ -113,7 +115,6 @@ impl KeyValueStore {
         })?;
         Ok(res.unwrap())
     }
-
 }
 
 impl Display for KeyValueStore {
