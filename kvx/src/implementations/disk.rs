@@ -88,7 +88,7 @@ impl WriteStore for Disk {
             fs::create_dir_all(dir)?;
         }
 
-        fs::write(path, value.to_string().as_bytes())?;
+        fs::write(path, format!("{:#}", value).as_bytes())?;
 
         Ok(())
     }
