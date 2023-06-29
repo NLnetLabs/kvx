@@ -100,6 +100,11 @@ assert_eq!(queue.jobs_remaining().unwrap(), 0);
 
 ## Changelog
 
+### Version 0.8.0
+
+- Add KeyValueStore::execute #38
+- Use pretty printed JSON for values on disk #39
+
 ### Version 0.7.0
 
 No functional changes were made, but the following updates were done
