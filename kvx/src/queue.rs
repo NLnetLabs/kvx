@@ -27,7 +27,7 @@ impl TaskState {
 }
 
 impl TaskState {
-    fn to_segment(&self) -> &Segment {
+    fn super_scope(&self) -> &Segment {
         match self {
             TaskState::Pending(_) => PendingTask::SEGMENT,
             TaskState::Running(_) => RunningTask::SEGMENT,
@@ -38,13 +38,15 @@ impl TaskState {
 
 impl From<TaskState> for Key {
     fn from(task: TaskState) -> Self {
-        let name: Key = match task.clone() {
+        let mut name: Key = match task.clone() {
             TaskState::Pending(t) => t.to_string().parse().unwrap(),
             TaskState::Running(t) => t.to_string().parse().unwrap(),
             TaskState::Finished(t) => t.to_string().parse().unwrap(),
         };
 
-        name.with_namespace(task.to_segment())
+        name.add_super_scope(task.super_scope());
+
+        name
     }
 }
 
@@ -176,7 +178,7 @@ pub struct Task {
 
 impl Task {
     pub fn name(&self) -> &Segment {
-        self.state.to_segment()
+        self.state.super_scope()
     }
 }
 
@@ -395,12 +397,12 @@ mod tests {
     use url::Url;
 
     use super::{FinishedTask, PendingTask, Queue, RunningTask};
-    use crate::{KeyValueStore, ReadStore, Scope, Segment};
+    use crate::{KeyValueStore, Namespace, ReadStore, Scope, Segment};
 
     fn queue_store(ns: &str) -> KeyValueStore {
         let storage_url = Url::parse("local://data").unwrap();
 
-        KeyValueStore::new(&storage_url, Segment::parse(ns).unwrap()).unwrap()
+        KeyValueStore::new(&storage_url, Namespace::parse(ns).unwrap()).unwrap()
     }
 
     #[test]
@@ -488,9 +490,9 @@ mod tests {
 
         queue.cleanup(Some(&Duration::from_secs(0)), None).unwrap();
 
-        let exsistsing = queue.exists(segment.into());
+        let existing = queue.exists(segment.into());
 
-        assert!(exsistsing.is_some());
+        assert!(existing.is_some());
         assert_eq!(queue.jobs_remaining().unwrap(), 1);
 
         let job = queue.claim_job();

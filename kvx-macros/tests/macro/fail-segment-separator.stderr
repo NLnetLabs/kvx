@@ -1,5 +1,5 @@
 error: segments must not contain scope separators
- --> tests/macro/fail-separator.rs:4:36
+ --> tests/macro/fail-segment-separator.rs:4:36
   |
 4 | const SEGMENT: &Segment = segment!("te/st");
   |                                    ^^^^^^^
