@@ -94,7 +94,7 @@ impl KeyValueStoreBackend for Memory {
                 .lock()
                 .map_err(|e| Error::MutexLock(e.to_string()))?;
 
-            if locks.iter().any(|s| s.matches(&scope)) {
+            if locks.iter().any(|s| s.matches(scope)) {
                 if i >= 10 {
                     return Err(Error::MutexLock(format!("Scope {} already locked", scope)));
                 } else {
@@ -122,22 +122,22 @@ impl KeyValueStoreBackend for Memory {
 
 impl ReadStore for Memory {
     fn has(&self, key: &Key) -> Result<bool> {
-        Ok(self.lock()?.contains_key(&key))
+        Ok(self.lock()?.contains_key(key))
     }
 
     fn has_scope(&self, scope: &Scope) -> Result<bool> {
-        Ok(self.lock()?.keys().any(|k| k.scope().starts_with(&scope)))
+        Ok(self.lock()?.keys().any(|k| k.scope().starts_with(scope)))
     }
 
     fn get(&self, key: &Key) -> Result<Option<serde_json::Value>> {
-        Ok(self.lock()?.get(&key).cloned())
+        Ok(self.lock()?.get(key).cloned())
     }
 
     fn list_keys(&self, scope: &Scope) -> Result<Vec<Key>> {
         Ok(self
             .lock()?
             .keys()
-            .filter(|k| k.scope().starts_with(&scope))
+            .filter(|k| k.scope().starts_with(scope))
             .cloned()
             .collect::<Vec<Key>>())
     }
@@ -179,7 +179,7 @@ impl WriteStore for Memory {
     }
 
     fn delete_scope(&self, scope: &Scope) -> Result<()> {
-        self.lock()?.retain(|k, _| !k.scope().starts_with(&scope));
+        self.lock()?.retain(|k, _| !k.scope().starts_with(scope));
         Ok(())
     }
 

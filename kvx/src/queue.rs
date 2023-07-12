@@ -490,9 +490,9 @@ mod tests {
 
         queue.cleanup(Some(&Duration::from_secs(0)), None).unwrap();
 
-        let exsistsing = queue.exists(segment.into());
+        let existing = queue.exists(segment.into());
 
-        assert!(exsistsing.is_some());
+        assert!(existing.is_some());
         assert_eq!(queue.jobs_remaining().unwrap(), 1);
 
         let job = queue.claim_job();
