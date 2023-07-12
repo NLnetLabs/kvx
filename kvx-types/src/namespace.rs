@@ -161,6 +161,81 @@ pub enum ParseNamespaceError {
     IllegalCharacter
 }
 
+#[cfg(feature = "postgres")]
+mod postgres_impls {
+    use crate::namespace::{Namespace, NamespaceBuf};
+
+    impl postgres::types::ToSql for &Namespace {
+        fn to_sql(
+            &self,
+            ty: &postgres_types::Type,
+            out: &mut postgres_types::private::BytesMut,
+        ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>>
+        where
+            Self: Sized,
+        {
+            (&self.0).to_sql(ty, out)
+        }
+
+        fn accepts(ty: &postgres_types::Type) -> bool
+        where
+            Self: Sized,
+        {
+            <&str>::accepts(ty)
+        }
+
+        fn to_sql_checked(
+            &self,
+            ty: &postgres_types::Type,
+            out: &mut postgres_types::private::BytesMut,
+        ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+            (&self.0).to_sql_checked(ty, out)
+        }
+    }
+
+    impl postgres::types::ToSql for NamespaceBuf {
+        fn to_sql(
+            &self,
+            ty: &postgres_types::Type,
+            out: &mut postgres_types::private::BytesMut,
+        ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>>
+        where
+            Self: Sized,
+        {
+            self.0.to_sql(ty, out)
+        }
+
+        fn accepts(ty: &postgres_types::Type) -> bool
+        where
+            Self: Sized,
+        {
+            String::accepts(ty)
+        }
+
+        fn to_sql_checked(
+            &self,
+            ty: &postgres_types::Type,
+            out: &mut postgres_types::private::BytesMut,
+        ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+            self.0.to_sql_checked(ty, out)
+        }
+    }
+
+    impl<'a> postgres::types::FromSql<'a> for NamespaceBuf {
+        fn from_sql(
+            ty: &postgres_types::Type,
+            raw: &'a [u8],
+        ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+            let value = String::from_sql(ty, raw)?;
+            Ok(Namespace::parse(&value)?.to_owned())
+        }
+
+        fn accepts(ty: &postgres_types::Type) -> bool {
+            String::accepts(ty)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
 

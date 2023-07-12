@@ -3,6 +3,7 @@ use std::{
     fmt::{Debug, Display},
 };
 
+use kvx_types::NamespaceBuf;
 use postgres::{NoTls, Row, ToStatement, Transaction};
 use postgres_types::ToSql;
 use r2d2_postgres::{
@@ -22,12 +23,12 @@ pub type PgPool = Pool<PostgresClient>;
 
 #[derive(Debug)]
 pub(crate) struct Postgres<E> {
-    namespace: SegmentBuf,
+    namespace: NamespaceBuf,
     executor: E,
 }
 
 impl Postgres<PgPool> {
-    pub(crate) fn new(connection_str: &Url, namespace: impl Into<SegmentBuf>) -> Result<Self> {
+    pub(crate) fn new(connection_str: &Url, namespace: impl Into<NamespaceBuf>) -> Result<Self> {
         let manager = PostgresConnectionManager::new(connection_str.as_str().parse()?, NoTls);
         let pool = Pool::new(manager)?;
 
@@ -85,57 +86,51 @@ impl<E: HasExecutor> KeyValueStoreBackend for Postgres<E> {
 
 impl<E: HasExecutor> ReadStore for Postgres<E> {
     fn has(&self, key: &Key) -> Result<bool> {
-        let key = key.with_namespace(self.namespace.clone());
-
         Ok(self
             .executor
             .executor()?
             .exec_query_opt(
-                "SELECT 1 FROM store WHERE scope = $1 AND key = $2",
-                &[key.scope().as_vec(), &key.name()],
+                "SELECT 1 FROM store WHERE namespace = $1 AND scope = $2 AND key = $3",
+                &[&self.namespace, key.scope().as_vec(), &key.name()],
             )?
             .is_some())
     }
 
     fn has_scope(&self, scope: &Scope) -> Result<bool> {
-        let scope = scope.with_namespace(self.namespace.clone());
 
         Ok(self
             .executor
             .executor()?
             .exec_query_opt(
-                "SELECT 1 FROM store WHERE scope[:$2]  = $1",
-                &[scope.as_vec(), &scope.len()],
+                "SELECT 1 FROM store WHERE namespace = $1 AND scope[:$3]  = $2",
+                &[&self.namespace, scope.as_vec(), &scope.len()],
             )?
             .is_some())
     }
 
     fn get(&self, key: &Key) -> Result<Option<serde_json::Value>> {
-        let key = key.with_namespace(self.namespace.clone());
         Ok(self
             .executor
             .executor()?
             .exec_query_opt(
-                "SELECT value FROM store WHERE scope = $1 AND key = $2",
-                &[key.scope().as_vec(), &key.name()],
+                "SELECT value FROM store WHERE namespace = $1 AND scope = $2 AND key = $3",
+                &[&self.namespace, key.scope().as_vec(), &key.name()],
             )?
             .and_then(|row| row.get(0)))
     }
 
     fn list_keys(&self, scope: &Scope) -> Result<Vec<Key>> {
-        let scope = scope.with_namespace(self.namespace.clone());
         Ok(self
             .executor
             .executor()?
             .exec_query(
-                "SELECT scope, key FROM store WHERE scope[:$2] = $1",
-                &[scope.as_vec(), &scope.len()],
+                "SELECT scope, key FROM store WHERE namespace = $1 AND scope[:$3] = $2",
+                &[&self.namespace, scope.as_vec(), &scope.len()],
             )?
             .into_iter()
             .map(|row| {
-                let scope: Vec<SegmentBuf> = row.get(0);
-                let mut scope = Scope::new(scope);
-                scope.remove_namespace(self.namespace.clone());
+                let scope_segments: Vec<SegmentBuf> = row.get(0);
+                let scope = Scope::new(scope_segments);
                 let name: SegmentBuf = row.get(1);
 
                 Key::new_scoped(scope, name)
@@ -147,16 +142,14 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
         Ok(self
             .executor
             .executor()?
-            .exec_query("SELECT scope FROM store", &[])?
+            .exec_query(
+                "SELECT DISTINCT scope FROM store WHERE namespace = $1",
+                &[&self.namespace]
+            )?
             .into_iter()
             .flat_map(|row| {
-                let scope: Vec<SegmentBuf> = row.get(0);
-                let mut scope = Scope::new(scope);
-                if scope.remove_namespace(self.namespace.clone()).is_some() {
-                    scope.sub_scopes()
-                } else {
-                    vec![]
-                }
+                let scope_segments: Vec<SegmentBuf> = row.get(0);
+                Scope::new(scope_segments).sub_scopes()
             })
             .collect::<Vec<Scope>>())
     }
@@ -164,23 +157,20 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
 
 impl<E: HasExecutor> WriteStore for Postgres<E> {
     fn store(&self, key: &Key, value: serde_json::Value) -> Result<()> {
-        let key = key.with_namespace(self.namespace.clone());
         self.executor.executor()?.exec_execute(
-            "INSERT INTO store (scope, key, value) VALUES ($1, $2, $3) ON CONFLICT (scope, key) \
-             DO UPDATE SET value = $3",
-            &[key.scope().as_vec(), &key.name(), &value],
+            "INSERT INTO store (namespace, scope, key, value) VALUES ($1, $2, $3, $4) ON CONFLICT (namespace, scope, key) \
+             DO UPDATE SET value = $4",
+            &[&self.namespace, key.scope().as_vec(), &key.name(), &value],
         )?;
 
         Ok(())
     }
 
     fn move_value(&self, from: &Key, to: &Key) -> Result<()> {
-        let from = from.with_namespace(self.namespace.clone());
-        let to = to.with_namespace(self.namespace.clone());
-
         self.executor.executor()?.exec_execute(
-            "UPDATE store SET scope = $3, key = $4 WHERE scope = $1 AND key = $2",
+            "UPDATE store SET scope = $4, key = $5 WHERE namespace = $1 AND scope = $2 AND key = $3",
             &[
+                &self.namespace,
                 from.scope().as_vec(),
                 &from.name(),
                 to.scope().as_vec(),
@@ -192,32 +182,30 @@ impl<E: HasExecutor> WriteStore for Postgres<E> {
     }
 
     fn move_scope(&self, from: &Scope, to: &Scope) -> Result<()> {
-        let from = from.with_namespace(self.namespace.clone());
-        let to = to.with_namespace(self.namespace.clone());
-
         self.executor.executor()?.exec_execute(
-            "UPDATE store SET scope = $2 WHERE scope = $1",
-            &[&from.as_vec(), &to.as_vec()],
+            "UPDATE store SET scope = $3 WHERE namespace = $1 AND scope = $2",
+            &[&self.namespace, &from.as_vec(), &to.as_vec()],
         )?;
 
         Ok(())
     }
 
     fn delete(&self, key: &Key) -> Result<()> {
-        let key = key.with_namespace(self.namespace.clone());
         self.executor.executor()?.exec_execute(
-            "DELETE FROM store WHERE scope = $1 AND key = $2",
-            &[key.scope().as_vec(), &key.name()],
+            "DELETE FROM store WHERE namespace = $1 AND scope = $2 AND key = $3",
+            &[&self.namespace, key.scope().as_vec(), &key.name()],
         )?;
 
         Ok(())
     }
 
     fn delete_scope(&self, scope: &Scope) -> Result<()> {
-        let scope = scope.with_namespace(self.namespace.clone());
         self.executor
             .executor()?
-            .exec_execute("DELETE FROM store WHERE scope = $1", &[&scope.as_vec()])?;
+            .exec_execute(
+                "DELETE FROM store WHERE namespace = $1 AND scope = $2",
+                &[&self.namespace, &scope.as_vec()]
+            )?;
 
         Ok(())
     }
@@ -225,7 +213,10 @@ impl<E: HasExecutor> WriteStore for Postgres<E> {
     fn clear(&self) -> Result<()> {
         self.executor
             .executor()?
-            .exec_execute("DELETE FROM store WHERE scope[1] = $1", &[&self.namespace])?;
+            .exec_execute(
+                "DELETE FROM store WHERE namespace = $1",
+                &[&self.namespace]
+            )?;
 
         Ok(())
     }
