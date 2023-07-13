@@ -185,12 +185,12 @@ impl WriteStore for Memory {
     fn move_scope(&self, from: &Scope, to: &Scope) -> Result<()> {
         let mut inner = self.lock()?;
         *inner = inner
-            .iter()
+            .drain()
             .map(|(k, v)| {
                 if k.scope() == from {
-                    (Key::new_scoped(to.clone(), k.name()), v.clone())
+                    (Key::new_scoped(to.clone(), k.name()), v)
                 } else {
-                    (k.clone(), v.clone())
+                    (k, v)
                 }
             })
             .collect::<HashMap<Key, serde_json::Value>>();
