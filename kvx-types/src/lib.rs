@@ -1,5 +1,5 @@
 pub use key::Key;
-pub use namespace::{ParseNamespaceError, Namespace, NamespaceBuf};
+pub use namespace::{Namespace, NamespaceBuf, ParseNamespaceError};
 pub use scope::Scope;
 pub use segment::{ParseSegmentError, Segment, SegmentBuf};
 

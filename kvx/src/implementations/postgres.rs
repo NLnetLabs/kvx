@@ -97,7 +97,6 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
     }
 
     fn has_scope(&self, scope: &Scope) -> Result<bool> {
-
         Ok(self
             .executor
             .executor()?
@@ -144,7 +143,7 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
             .executor()?
             .exec_query(
                 "SELECT DISTINCT scope FROM store WHERE namespace = $1",
-                &[&self.namespace]
+                &[&self.namespace],
             )?
             .into_iter()
             .flat_map(|row| {
@@ -200,12 +199,10 @@ impl<E: HasExecutor> WriteStore for Postgres<E> {
     }
 
     fn delete_scope(&self, scope: &Scope) -> Result<()> {
-        self.executor
-            .executor()?
-            .exec_execute(
-                "DELETE FROM store WHERE namespace = $1 AND scope = $2",
-                &[&self.namespace, &scope.as_vec()]
-            )?;
+        self.executor.executor()?.exec_execute(
+            "DELETE FROM store WHERE namespace = $1 AND scope = $2",
+            &[&self.namespace, &scope.as_vec()],
+        )?;
 
         Ok(())
     }
@@ -213,10 +210,7 @@ impl<E: HasExecutor> WriteStore for Postgres<E> {
     fn clear(&self) -> Result<()> {
         self.executor
             .executor()?
-            .exec_execute(
-                "DELETE FROM store WHERE namespace = $1",
-                &[&self.namespace]
-            )?;
+            .exec_execute("DELETE FROM store WHERE namespace = $1", &[&self.namespace])?;
 
         Ok(())
     }

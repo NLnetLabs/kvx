@@ -34,8 +34,8 @@ mod tests {
             .collect::<String>()
             .parse()
             .unwrap()
-        }
-        
+    }
+
     fn random_namespace() -> NamespaceBuf {
         rand::thread_rng()
             .sample_iter(&Alphanumeric)

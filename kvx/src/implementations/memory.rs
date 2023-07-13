@@ -8,8 +8,7 @@ use kvx_types::NamespaceBuf;
 use lazy_static::lazy_static;
 
 use crate::{
-    Error, Key, KeyValueStoreBackend, ReadStore, Result, Scope, TransactionCallback,
-    WriteStore,
+    Error, Key, KeyValueStoreBackend, ReadStore, Result, Scope, TransactionCallback, WriteStore,
 };
 
 type MemoryStore = HashMap<Key, serde_json::Value>;
@@ -75,11 +74,7 @@ impl ReadStore for ReadOnlyMemory {
     }
 
     fn list_scopes(&self) -> Result<Vec<Scope>> {
-        let scopes: BTreeSet<&Scope> = self
-            .inner
-            .keys()
-            .map(|k| k.scope())
-            .collect();
+        let scopes: BTreeSet<&Scope> = self.inner.keys().map(|k| k.scope()).collect();
 
         Ok(scopes.into_iter().cloned().collect())
     }
@@ -148,9 +143,7 @@ impl ReadStore for Memory {
             .lock()?
             .keys()
             .filter(|k| k.scope().starts_with(&scope))
-            .flat_map(|k| {
-                k.scope().sub_scopes()
-            })
+            .flat_map(|k| k.scope().sub_scopes())
             .collect();
 
         Ok(scopes.into_iter().collect())

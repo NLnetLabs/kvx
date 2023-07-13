@@ -132,25 +132,25 @@ impl Scope {
         clone.add_sub_scope(sub_scope);
         clone
     }
-    
+
     /// Add a [`Segment`] to the end of the scope.
     ///
     /// [`Segment`]: ../kvx/struct.Segment.html
     pub fn add_sub_scope(&mut self, sub_scope: impl Into<SegmentBuf>) {
         self.segments.push(sub_scope.into());
     }
-    
+
     /// Create a new [`Scope`] and add a [`Segment`] to the front of it.
-    /// 
+    ///
     /// [`Segment`]: ../kvx/struct.Segment.html
     pub fn with_super_scope(&self, super_scope: impl Into<SegmentBuf>) -> Self {
         let mut clone = self.clone();
         clone.add_super_scope(super_scope);
         clone
     }
-    
+
     /// Add a [`Segment`] to the front of the scope.
-    /// 
+    ///
     /// [`Segment`]: ../kvx/struct.Segment.html
     pub fn add_super_scope(&mut self, super_scope: impl Into<SegmentBuf>) {
         self.segments.insert(0, super_scope.into());

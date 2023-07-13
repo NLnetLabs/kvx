@@ -8,7 +8,7 @@ use std::{
 use thiserror::Error;
 
 /// An owned Namespace.
-/// 
+///
 /// This is the owned variant of [`Namespace`]
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
@@ -55,13 +55,13 @@ impl From<&Namespace> for NamespaceBuf {
 }
 
 /// A string slice representing a namespace.
-/// 
+///
 /// Namespaces are used by KeyValueStore to separate
 /// different instances that use a shared storage.
-/// 
+///
 /// Namespace MUST NOT contain any other characters
 /// except a-z A-Z 0-9 - or _.
-/// 
+///
 /// For the owned variant, see [`NamespaceBuf`]
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Namespace(str);
@@ -84,8 +84,8 @@ impl Namespace {
             Err(ParseNamespaceError::Empty)
         } else if value.len() > 255 {
             Err(ParseNamespaceError::TooLong)
-        } else if Self::contains_only_legal_chars(value.as_bytes()){
-            unsafe { Ok(Namespace::from_str_unchecked(value))}
+        } else if Self::contains_only_legal_chars(value.as_bytes()) {
+            unsafe { Ok(Namespace::from_str_unchecked(value)) }
         } else {
             Err(ParseNamespaceError::IllegalCharacter)
         }
@@ -158,7 +158,7 @@ pub enum ParseNamespaceError {
     #[error("namespaces must not be longer than 255 characters")]
     TooLong,
     #[error("namespace can only alphanumeric characters and - or _")]
-    IllegalCharacter
+    IllegalCharacter,
 }
 
 #[cfg(feature = "postgres")]
