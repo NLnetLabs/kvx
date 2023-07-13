@@ -80,21 +80,15 @@ impl Key {
     }
 
     /// Create a new [`Key`] and add a [`Segment`] to the front of its scope.
-    pub fn with_namespace(&self, namespace: impl Into<SegmentBuf>) -> Self {
+    pub fn with_super_scope(&self, super_scope: impl Into<SegmentBuf>) -> Self {
         let mut clone = self.clone();
-        clone.add_namespace(namespace);
+        clone.add_super_scope(super_scope);
         clone
     }
 
     /// Add a [`Segment`] to the front of the scope of the key.
-    pub fn add_namespace(&mut self, namespace: impl Into<SegmentBuf>) {
-        self.scope.add_namespace(namespace);
-    }
-
-    /// Remove the first [`Segment`] of the scope of the key if it matches the
-    /// given. Returns `Some(Segment)` if it matches, `None` otherwise.
-    pub fn remove_namespace(&mut self, namespace: impl Into<SegmentBuf>) -> Option<SegmentBuf> {
-        self.scope.remove_namespace(namespace)
+    pub fn add_super_scope(&mut self, super_scope: impl Into<SegmentBuf>) {
+        self.scope.add_super_scope(super_scope);
     }
 }
 

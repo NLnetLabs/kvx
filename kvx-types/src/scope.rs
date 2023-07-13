@@ -127,9 +127,9 @@ impl Scope {
     /// Create a new [`Scope`] and add a [`Segment`] to the end of it.
     ///
     /// [`Segment`]: ../kvx/struct.Segment.html
-    pub fn with_sub_scope(&self, namespace: impl Into<SegmentBuf>) -> Self {
+    pub fn with_sub_scope(&self, sub_scope: impl Into<SegmentBuf>) -> Self {
         let mut clone = self.clone();
-        clone.add_sub_scope(namespace);
+        clone.add_sub_scope(sub_scope);
         clone
     }
 
@@ -143,29 +143,17 @@ impl Scope {
     /// Create a new [`Scope`] and add a [`Segment`] to the front of it.
     ///
     /// [`Segment`]: ../kvx/struct.Segment.html
-    pub fn with_namespace(&self, namespace: impl Into<SegmentBuf>) -> Self {
+    pub fn with_super_scope(&self, super_scope: impl Into<SegmentBuf>) -> Self {
         let mut clone = self.clone();
-        clone.add_namespace(namespace);
+        clone.add_super_scope(super_scope);
         clone
     }
 
     /// Add a [`Segment`] to the front of the scope.
     ///
     /// [`Segment`]: ../kvx/struct.Segment.html
-    pub fn add_namespace(&mut self, namespace: impl Into<SegmentBuf>) {
-        self.segments.insert(0, namespace.into());
-    }
-
-    /// Remove the first [`Segment`] if it matches the given. Returns
-    /// `Some(Segment)` if it matches, `None` otherwise.
-    ///
-    /// [`Segment`]: ../kvx/struct.Segment.html
-    pub fn remove_namespace(&mut self, namespace: impl Into<SegmentBuf>) -> Option<SegmentBuf> {
-        if *self.segments.get(0)? == namespace.into() {
-            Some(self.segments.remove(0))
-        } else {
-            None
-        }
+    pub fn add_super_scope(&mut self, super_scope: impl Into<SegmentBuf>) {
+        self.segments.insert(0, super_scope.into());
     }
 }
 

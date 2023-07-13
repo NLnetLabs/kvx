@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 use implementations::{disk::Disk, memory::Memory};
 #[cfg(feature = "macros")]
 pub use kvx_macros::segment;
-pub use kvx_types::{Key, Scope, Segment, SegmentBuf};
+pub use kvx_types::{Key, Namespace, NamespaceBuf, Scope, Segment, SegmentBuf};
 #[cfg(feature = "queue")]
 pub use queue::Queue;
 use serde_json::Value;
@@ -54,14 +54,14 @@ impl<T> PubKeyValueStoreBackend for T where T: KeyValueStoreBackend + Debug + Se
 ///
 /// # Example
 /// ```
-/// use kvx::{Segment, KeyValueStore};
+/// use kvx::{Namespace, KeyValueStore};
 /// use url::Url;
 /// // use an in-memory backend
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let store = KeyValueStore::new(&Url::parse("memory://")?, Segment::parse("ns")?)?;
+/// let store = KeyValueStore::new(&Url::parse("memory://")?, Namespace::parse("ns")?)?;
 ///
 /// // use a file backend
-/// let store = KeyValueStore::new(&Url::parse("local://tmp")?, Segment::parse("ns")?)?;
+/// let store = KeyValueStore::new(&Url::parse("local://tmp")?, Namespace::parse("ns")?)?;
 ///
 /// # Ok(())
 /// # }
@@ -72,7 +72,7 @@ pub struct KeyValueStore {
 }
 
 impl KeyValueStore {
-    pub fn new(storage_uri: &Url, namespace: impl Into<SegmentBuf>) -> Result<KeyValueStore> {
+    pub fn new(storage_uri: &Url, namespace: impl Into<NamespaceBuf>) -> Result<KeyValueStore> {
         let namespace = namespace.into();
         let inner: Box<dyn PubKeyValueStoreBackend> = match storage_uri.scheme() {
             "local" => {

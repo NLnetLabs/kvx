@@ -1,0 +1,5 @@
+error: namespaces must be nonempty
+ --> tests/macro/fail-namespace-empty.rs:4:42
+  |
+4 | const NAMESPACE: &Namespace = namespace!("");
+  |                                          ^^
