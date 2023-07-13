@@ -128,8 +128,7 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
             )?
             .into_iter()
             .map(|row| {
-                let scope_segments: Vec<SegmentBuf> = row.get(0);
-                let scope = Scope::new(scope_segments);
+                let scope = Scope::new(row.get(0));
                 let name: SegmentBuf = row.get(1);
 
                 Key::new_scoped(scope, name)
@@ -147,8 +146,7 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
             )?
             .into_iter()
             .flat_map(|row| {
-                let scope_segments: Vec<SegmentBuf> = row.get(0);
-                Scope::new(scope_segments).sub_scopes()
+                Scope::new(row.get(0)).sub_scopes()
             })
             .collect::<Vec<Scope>>())
     }
