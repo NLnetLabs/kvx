@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display};
 
 use implementations::{disk::Disk, memory::Memory};
 #[cfg(feature = "macros")]
-pub use kvx_macros::segment;
+pub use kvx_macros::{namespace, segment};
 pub use kvx_types::{Key, Namespace, NamespaceBuf, Scope, Segment, SegmentBuf};
 #[cfg(feature = "queue")]
 pub use queue::Queue;
