@@ -14,7 +14,7 @@ mod tests {
     use super::{disk::Disk, memory::Memory};
     #[cfg(feature = "postgres")]
     use crate::implementations::postgres::{PgPool, Postgres};
-    use crate::{Key, KeyValueStoreBackend, Scope, SegmentBuf};
+    use crate::{Key, KeyValueStoreBackend, NamespaceBuf, Scope, SegmentBuf};
 
     fn random_value(length: usize) -> Value {
         Value::from(
@@ -27,6 +27,16 @@ mod tests {
     }
 
     fn random_segment() -> SegmentBuf {
+        rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(8)
+            .map(char::from)
+            .collect::<String>()
+            .parse()
+            .unwrap()
+    }
+
+    fn random_namespace() -> NamespaceBuf {
         rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .take(8)
@@ -86,9 +96,9 @@ mod tests {
         let ns = random_segment();
         let keys: Vec<Key> = vec![
             random_key(1),
-            random_key(1).with_namespace(ns.clone()),
-            random_key(1).with_namespace(ns.clone()),
-            random_key(2).with_namespace(ns.clone()),
+            random_key(1).with_super_scope(ns.clone()),
+            random_key(1).with_super_scope(ns.clone()),
+            random_key(2).with_super_scope(ns.clone()),
         ];
 
         for key in keys.iter() {
@@ -390,67 +400,67 @@ mod tests {
                 #[test]
                 #[serial]
                 fn test_store() {
-                    super::test_store($construct(super::random_segment()))
+                    super::test_store($construct(super::random_namespace()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_has() {
-                    super::test_has($construct(super::random_segment()))
+                    super::test_has($construct(super::random_namespace()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_has_scope() {
-                    super::test_has_scope($construct(super::random_segment()))
+                    super::test_has_scope($construct(super::random_namespace()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_list_keys() {
-                    super::test_list_keys($construct(super::random_segment()))
+                    super::test_list_keys($construct(super::random_namespace()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_list_scopes() {
-                    super::test_list_scopes($construct(super::random_segment()))
+                    super::test_list_scopes($construct(super::random_namespace()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_move_value() {
-                    super::test_move_value($construct(super::random_segment()))
+                    super::test_move_value($construct(super::random_namespace()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_delete() {
-                    super::test_delete($construct(super::random_segment()))
+                    super::test_delete($construct(super::random_namespace()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_delete_scope() {
-                    super::test_delete_scope($construct(super::random_segment()))
+                    super::test_delete_scope($construct(super::random_namespace()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_clear() {
-                    super::test_clear($construct(super::random_segment()))
+                    super::test_clear($construct(super::random_namespace()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_move_scope() {
-                    super::test_move_scope($construct(super::random_segment()))
+                    super::test_move_scope($construct(super::random_namespace()))
                 }
 
                 #[test]
                 #[serial]
                 fn test_transaction() {
-                    let ns = super::random_segment();
+                    let ns = super::random_namespace();
                     let store1 = $construct(ns.clone());
                     let store2 = $construct(ns.clone());
                     super::test_transaction(vec![store1, store2]);
@@ -460,7 +470,7 @@ mod tests {
     }
 
     #[cfg(feature = "postgres")]
-    fn postgres(namespace: SegmentBuf) -> Postgres<PgPool> {
+    fn postgres(namespace: NamespaceBuf) -> Postgres<PgPool> {
         let pg = Postgres::new(
             &url::Url::parse("postgres://postgres@localhost/postgres").unwrap(),
             namespace,
@@ -472,13 +482,13 @@ mod tests {
         pg
     }
 
-    fn memory(namespace: SegmentBuf) -> Memory {
+    fn memory(namespace: NamespaceBuf) -> Memory {
         let store = Memory::new(namespace);
         store.lock().unwrap().clear();
         store
     }
 
-    fn disk(namespace: SegmentBuf) -> Disk {
+    fn disk(namespace: NamespaceBuf) -> Disk {
         let cwd = std::env::current_dir().unwrap().join("data");
         let path = cwd.to_str().unwrap();
         if cwd.exists() {

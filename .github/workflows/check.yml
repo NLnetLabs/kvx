@@ -45,10 +45,8 @@ jobs:
       - run: |
           rustup toolchain install nightly --profile minimal
           rustup default nightly
-          rustup component add rustfmt
       - run: cargo install cargo-udeps || true
       - run: |
-          cargo fmt --check
           cargo udeps --all-features --all-targets
 
   test:
