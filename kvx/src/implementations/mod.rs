@@ -483,11 +483,13 @@ mod tests {
     }
 
     fn memory(namespace: NamespaceBuf) -> Memory {
+        use crate::WriteStore;
+        
         let store = Memory::new(namespace);
-        store.lock().unwrap().clear();
+        store.clear().unwrap();
         store
     }
-
+    
     fn disk(namespace: NamespaceBuf) -> Disk {
         let cwd = std::env::current_dir().unwrap().join("data");
         let path = cwd.to_str().unwrap();
