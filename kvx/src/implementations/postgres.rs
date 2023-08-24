@@ -145,9 +145,7 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
                 &[&self.namespace],
             )?
             .into_iter()
-            .flat_map(|row| {
-                Scope::new(row.get(0)).sub_scopes()
-            })
+            .flat_map(|row| Scope::new(row.get(0)).sub_scopes())
             .collect::<Vec<Scope>>())
     }
 }

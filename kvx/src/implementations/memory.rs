@@ -20,11 +20,17 @@ impl MemoryStore {
     }
 
     fn has(&self, namespace: &NamespaceBuf, key: &Key) -> bool {
-        self.0.get(namespace).map(|m| m.contains_key(key)).unwrap_or_default()
+        self.0
+            .get(namespace)
+            .map(|m| m.contains_key(key))
+            .unwrap_or_default()
     }
 
     fn has_scope(&self, namespace: &NamespaceBuf, scope: &Scope) -> bool {
-        self.0.get(namespace).map(|m| m.keys().any(|k| k.scope().starts_with(scope))).unwrap_or_default()
+        self.0
+            .get(namespace)
+            .map(|m| m.keys().any(|k| k.scope().starts_with(scope)))
+            .unwrap_or_default()
     }
 
     fn get(&self, namespace: &NamespaceBuf, key: &Key) -> Option<serde_json::Value> {
@@ -37,7 +43,11 @@ impl MemoryStore {
     }
 
     fn delete(&mut self, namespace: &NamespaceBuf, key: &Key) -> Result<()> {
-        self.0.get_mut(namespace).ok_or(Error::UnknownKey)?.remove(key).ok_or(Error::UnknownKey)?;
+        self.0
+            .get_mut(namespace)
+            .ok_or(Error::UnknownKey)?
+            .remove(key)
+            .ok_or(Error::UnknownKey)?;
         Ok(())
     }
 
@@ -48,32 +58,30 @@ impl MemoryStore {
                 Some(value) => {
                     map.insert(to.clone(), value);
                     Ok(())
-                },
-                None => Err(Error::UnknownKey)
-            }
+                }
+                None => Err(Error::UnknownKey),
+            },
         }
     }
 
     fn list_keys(&self, namespace: &NamespaceBuf, scope: &Scope) -> Vec<Key> {
         self.0
             .get(namespace)
-            .map(|m| 
+            .map(|m| {
                 m.keys()
-                .filter(|k| k.scope().starts_with(scope))
-                .cloned()
-                .collect::<Vec<Key>>()
-            ).unwrap_or_default()
-        
+                    .filter(|k| k.scope().starts_with(scope))
+                    .cloned()
+                    .collect::<Vec<Key>>()
+            })
+            .unwrap_or_default()
     }
 
     fn list_scopes(&self, namespace: &NamespaceBuf) -> Vec<Scope> {
-        let scopes: BTreeSet<Scope> = self.0
+        let scopes: BTreeSet<Scope> = self
+            .0
             .get(namespace)
-            .map(|m|
-                m.keys().flat_map(|k|
-                    k.scope().sub_scopes()
-                ).collect()
-            ).unwrap_or_default();
+            .map(|m| m.keys().flat_map(|k| k.scope().sub_scopes()).collect())
+            .unwrap_or_default();
 
         scopes.into_iter().collect()
     }
@@ -82,21 +90,22 @@ impl MemoryStore {
         if let Some(map) = self.0.get_mut(namespace) {
             map.retain(|k, _| !k.scope().starts_with(scope));
         }
-        
+
         Ok(())
     }
 
     fn move_scope(&mut self, namespace: &NamespaceBuf, from: &Scope, to: &Scope) -> Result<()> {
         if let Some(map) = self.0.get_mut(namespace) {
-            *map = map.drain()
-            .map(|(k, v)| {
-                if k.scope() == from {
-                    (Key::new_scoped(to.clone(), k.name()), v)
-                } else {
-                    (k, v)
-                }
-            })
-            .collect::<HashMap<Key, serde_json::Value>>();
+            *map = map
+                .drain()
+                .map(|(k, v)| {
+                    if k.scope() == from {
+                        (Key::new_scoped(to.clone(), k.name()), v)
+                    } else {
+                        (k, v)
+                    }
+                })
+                .collect::<HashMap<Key, serde_json::Value>>();
         }
 
         Ok(())
@@ -220,10 +229,7 @@ impl ReadStore for Memory {
     }
 
     fn list_keys(&self, scope: &Scope) -> Result<Vec<Key>> {
-        Ok(self
-            .lock()?
-            .list_keys(&self.namespace, scope)
-        )
+        Ok(self.lock()?.list_keys(&self.namespace, scope))
     }
 
     fn list_scopes(&self) -> Result<Vec<Scope>> {
