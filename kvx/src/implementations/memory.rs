@@ -111,6 +111,26 @@ impl MemoryStore {
         Ok(())
     }
 
+    fn migrate_namespace(&mut self, from: &NamespaceBuf, to: &NamespaceBuf) -> Result<()> {
+        if self.0.contains_key(to) {
+            Err(Error::NamespaceMigration(format!(
+                "target in-memory namespace {} already exists",
+                to.as_str()
+            )))
+        } else {
+            match self.0.remove(from) {
+                None => Err(Error::NamespaceMigration(format!(
+                    "original in-memory namespace {} does not exist",
+                    from.as_str()
+                ))),
+                Some(map) => {
+                    self.0.insert(to.clone(), map);
+                    Ok(())
+                }
+            }
+        }
+    }
+
     pub fn clear(&mut self, namespace: &NamespaceBuf) -> Result<()> {
         self.0.insert(namespace.clone(), HashMap::new());
         Ok(())
@@ -261,5 +281,11 @@ impl WriteStore for Memory {
 
     fn move_scope(&self, from: &Scope, to: &Scope) -> Result<()> {
         self.lock()?.move_scope(&self.namespace, from, to)
+    }
+
+    fn migrate_namespace(&mut self, to: NamespaceBuf) -> Result<()> {
+        self.lock()?.migrate_namespace(&self.namespace, &to)?;
+        self.namespace = to;
+        Ok(())
     }
 }

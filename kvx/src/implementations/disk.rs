@@ -147,6 +147,32 @@ impl WriteStore for Disk {
 
         Ok(())
     }
+
+    fn migrate_namespace(&mut self, namespace: kvx_types::NamespaceBuf) -> Result<()> {
+        let root_parent = self.root.parent().ok_or(Error::NamespaceMigration(format!(
+            "cannot get parent dir for: {}",
+            self.root.to_string_lossy()
+        )))?;
+
+        let new_root = root_parent.join(namespace.as_str());
+        if new_root.exists() {
+            Err(Error::NamespaceMigration(format!(
+                "new target dir already exists at: {}",
+                new_root.to_string_lossy(),
+            )))
+        } else {
+            fs::rename(&self.root, &new_root).map_err(|e| {
+                Error::NamespaceMigration(format!(
+                    "cannot rename dir from {} to {}. Error: {}",
+                    self.root.to_string_lossy(),
+                    new_root.to_string_lossy(),
+                    e
+                ))
+            })?;
+            self.root = new_root;
+            Ok(())
+        }
+    }
 }
 
 impl KeyValueStoreBackend for Disk {

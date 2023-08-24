@@ -27,15 +27,28 @@ pub trait ReadStore {
     fn list_scopes(&self) -> Result<Vec<Scope>>;
 }
 
-/// Read operations of a store
+/// Write operations of a store
 pub trait WriteStore {
+    /// Store a value.
     fn store(&self, key: &Key, value: Value) -> Result<()>;
+
+    /// Move a value to a new key. Fails if the original value does not exist.
     fn move_value(&self, from: &Key, to: &Key) -> Result<()>;
+
+    /// Move all values from one scope to another.
     fn move_scope(&self, from: &Scope, to: &Scope) -> Result<()>;
 
+    /// Delete a value for a key.
     fn delete(&self, key: &Key) -> Result<()>;
+
+    /// Delete all values for a scope.
     fn delete_scope(&self, scope: &Scope) -> Result<()>;
+
+    /// Delete all values within the namespace of this store.
     fn clear(&self) -> Result<()>;
+
+    /// Migrate the namespace (and all key value pairs) for this store.
+    fn migrate_namespace(&mut self, to: NamespaceBuf) -> Result<()>;
 }
 
 pub(crate) type TransactionCallback<'s> =
@@ -174,5 +187,9 @@ impl WriteStore for KeyValueStore {
 
     fn clear(&self) -> Result<()> {
         self.inner.clear()
+    }
+
+    fn migrate_namespace(&mut self, to: NamespaceBuf) -> Result<()> {
+        self.inner.migrate_namespace(to)
     }
 }

@@ -13,7 +13,7 @@ use r2d2_postgres::{
 use url::Url;
 
 use crate::{
-    Key, KeyValueStoreBackend, ReadStore, Result, Scope, SegmentBuf, TransactionCallback,
+    Error, Key, KeyValueStoreBackend, ReadStore, Result, Scope, SegmentBuf, TransactionCallback,
     WriteStore,
 };
 
@@ -207,6 +207,61 @@ impl<E: HasExecutor> WriteStore for Postgres<E> {
         self.executor
             .executor()?
             .exec_execute("DELETE FROM store WHERE namespace = $1", &[&self.namespace])?;
+
+        Ok(())
+    }
+
+    fn migrate_namespace(&mut self, to: NamespaceBuf) -> Result<()> {
+        let mut client = self.executor.executor()?;
+        let mut transaction = client.exec_transaction()?;
+        transaction.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", &[])?;
+
+        let postgres = Postgres {
+            namespace: self.namespace.clone(),
+            executor: RefCell::new(transaction),
+        };
+
+        if postgres
+            .executor
+            .executor()?
+            .exec_query_opt(
+                "SELECT DISTINCT namespace FROM store WHERE namespace = $1",
+                &[&self.namespace],
+            )?
+            .is_none()
+        {
+            postgres.executor.into_inner().rollback()?; // make sure transaction is finished
+
+            return Err(Error::NamespaceMigration(format!(
+                "original namespace {} not found in database",
+                &self.namespace
+            )));
+        }
+
+        if postgres
+            .executor
+            .executor()?
+            .exec_query_opt(
+                "SELECT DISTINCT namespace FROM store WHERE namespace = $1",
+                &[&to],
+            )?
+            .is_some()
+        {
+            postgres.executor.into_inner().rollback()?; // make sure transaction is finished
+
+            return Err(Error::NamespaceMigration(format!(
+                "target namespace {} already exists in database",
+                &self.namespace
+            )));
+        }
+
+        postgres.executor.executor()?.exec_execute(
+            "UPDATE store SET namespace = $2 WHERE namespace = $1",
+            &[&self.namespace, &to],
+        )?;
+        postgres.executor.into_inner().commit()?;
+
+        self.namespace = to;
 
         Ok(())
     }
