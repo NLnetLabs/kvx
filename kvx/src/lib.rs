@@ -86,7 +86,7 @@ impl KeyValueStore {
             }
             "memory" => Box::new(Memory::new(
                 format!(
-                    "{} {}",
+                    "{}_{}",
                     storage_uri.host_str().unwrap_or_default(),
                     namespace
                 )
