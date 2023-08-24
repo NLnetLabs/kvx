@@ -151,13 +151,11 @@ pub(crate) struct Memory {
 
 impl Memory {
     pub(crate) fn new(namespace: impl Into<NamespaceBuf>) -> Self {
-        let res = Memory {
+        Memory {
             namespace: namespace.into(),
             inner: &STORE,
             locks: &LOCKS,
-        };
-        res.clear().unwrap();
-        res
+        }
     }
 
     pub(super) fn lock(&self) -> Result<MutexGuard<'_, MemoryStore>> {
