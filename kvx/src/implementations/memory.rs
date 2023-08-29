@@ -26,6 +26,13 @@ impl MemoryStore {
             .unwrap_or_default()
     }
 
+    fn namespace_is_empty(&self, namespace: &NamespaceBuf) -> bool {
+        self.0
+            .get(namespace)
+            .map(|m| m.is_empty())
+            .unwrap_or_default()
+    }
+
     fn has_scope(&self, namespace: &NamespaceBuf, scope: &Scope) -> bool {
         self.0
             .get(namespace)
@@ -177,6 +184,13 @@ struct ReadOnlyMemory {
 }
 
 impl ReadStore for ReadOnlyMemory {
+    fn is_empty(&self) -> Result<bool> {
+        // We have one shared inner MemoryStore for all namespaces.
+        // In this context this instance is considered empty if the
+        // shared store is empty for this namespace.
+        Ok(self.inner.namespace_is_empty(&self.namespace))
+    }
+
     fn has(&self, key: &Key) -> Result<bool> {
         Ok(self.inner.has(&self.namespace, key))
     }
@@ -234,6 +248,10 @@ impl KeyValueStoreBackend for Memory {
 }
 
 impl ReadStore for Memory {
+    fn is_empty(&self) -> Result<bool> {
+        self.lock().map(|l| l.namespace_is_empty(&self.namespace))
+    }
+
     fn has(&self, key: &Key) -> Result<bool> {
         Ok(self.lock()?.has(&self.namespace, key))
     }

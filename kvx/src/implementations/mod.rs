@@ -226,6 +226,14 @@ mod tests {
         store.clear().unwrap();
     }
 
+    fn test_is_empty(store: impl KeyValueStoreBackend) {
+        assert!(store.is_empty().unwrap());
+
+        store.store(&random_key(1), random_value(8)).unwrap();
+
+        assert!(!store.is_empty().unwrap());
+    }
+
     fn test_move_scope(store: impl KeyValueStoreBackend) {
         let key = random_key(0);
         let scope = random_scope(1);
@@ -449,6 +457,12 @@ mod tests {
                 #[serial]
                 fn test_clear() {
                     super::test_clear($construct(super::random_namespace()))
+                }
+
+                #[test]
+                #[serial]
+                fn test_is_empty() {
+                    super::test_is_empty($construct(super::random_namespace()))
                 }
 
                 #[test]

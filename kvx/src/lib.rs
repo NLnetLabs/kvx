@@ -20,6 +20,7 @@ pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Read operations of a store
 pub trait ReadStore {
+    fn is_empty(&self) -> Result<bool>;
     fn has(&self, key: &Key) -> Result<bool>;
     fn has_scope(&self, scope: &Scope) -> Result<bool>;
     fn get(&self, key: &Key) -> Result<Option<Value>>;
@@ -143,6 +144,10 @@ impl KeyValueStoreBackend for KeyValueStore {
 }
 
 impl ReadStore for KeyValueStore {
+    fn is_empty(&self) -> Result<bool> {
+        self.inner.is_empty()
+    }
+
     fn has(&self, key: &Key) -> Result<bool> {
         self.inner.has(key)
     }

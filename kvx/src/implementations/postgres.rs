@@ -85,6 +85,19 @@ impl<E: HasExecutor> KeyValueStoreBackend for Postgres<E> {
 }
 
 impl<E: HasExecutor> ReadStore for Postgres<E> {
+    fn is_empty(&self) -> Result<bool> {
+        // We use a shared table for multiple namespaces. We consider this
+        // instance empty if there are no entries for this namespace.
+        Ok(self
+            .executor
+            .executor()?
+            .exec_query_opt(
+                "SELECT 1 FROM store WHERE namespace = $1",
+                &[&self.namespace],
+            )?
+            .is_none())
+    }
+
     fn has(&self, key: &Key) -> Result<bool> {
         Ok(self
             .executor

@@ -23,9 +23,6 @@ pub struct Disk {
 impl Disk {
     pub fn new(path: &str, namespace: &str) -> Result<Self> {
         let root = PathBuf::from(path).join(namespace);
-        if !root.try_exists().unwrap_or_default() {
-            fs::create_dir_all(&root)?;
-        }
         Ok(Disk { root })
     }
 }
@@ -37,6 +34,14 @@ impl Display for Disk {
 }
 
 impl ReadStore for Disk {
+    fn is_empty(&self) -> Result<bool> {
+        Ok(self
+            .root
+            .read_dir()
+            .map(|mut d| d.next().is_none())
+            .unwrap_or(true))
+    }
+
     fn has(&self, key: &Key) -> Result<bool> {
         let exists = key.as_path(&self.root).exists();
         Ok(exists)
