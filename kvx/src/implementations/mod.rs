@@ -136,8 +136,7 @@ mod tests {
             .unwrap();
 
         let mut result = store.list_scopes().unwrap();
-        let mut expected =
-            vec![scope.sub_scopes(), scope1.sub_scopes(), scope2.sub_scopes()].concat();
+        let mut expected = [scope.sub_scopes(), scope1.sub_scopes(), scope2.sub_scopes()].concat();
 
         result.sort();
         expected.sort();
@@ -332,7 +331,7 @@ mod tests {
 
                     let mut result: Vec<Key> =
                         store.list_keys(&scope_clone).unwrap().into_iter().collect();
-                    let expected: Vec<Key> = vec![
+                    let expected: Vec<Key> = [
                         format!("key_{index}_1_{counter}"),
                         format!("key_{index}_2_{counter}"),
                         format!("key_{index}_3_{counter}"),
@@ -360,7 +359,7 @@ mod tests {
             .into_iter()
             .collect();
 
-        let scenario1: Vec<Key> = vec![
+        let scenario1: Vec<Key> = [
             "key_0_1_0",
             "key_0_2_0",
             "key_0_3_0",
@@ -374,7 +373,7 @@ mod tests {
         .map(|s| Key::new_scoped(transaction_scope.clone(), s.parse::<SegmentBuf>().unwrap()))
         .collect();
 
-        let scenario2: Vec<Key> = vec![
+        let scenario2: Vec<Key> = [
             "key_0_1_1",
             "key_0_2_1",
             "key_0_3_1",

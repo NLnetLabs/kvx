@@ -204,7 +204,7 @@ impl<'a> IntoIterator for &'a Scope {
 
 impl Extend<SegmentBuf> for Scope {
     fn extend<T: IntoIterator<Item = SegmentBuf>>(&mut self, iter: T) {
-        self.segments.extend(iter.into_iter())
+        self.segments.extend(iter)
     }
 }
 
