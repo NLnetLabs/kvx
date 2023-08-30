@@ -149,6 +149,7 @@ lazy_static! {
 
 #[derive(Debug)]
 pub(crate) struct Memory {
+    // Used to prevent namespace collisions in the shared (lazy static) in memory structure.
     namespace_prefix: Option<String>,
     effective_namespace: NamespaceBuf,
     inner: &'static Mutex<MemoryStore>,
@@ -320,6 +321,9 @@ impl WriteStore for Memory {
     }
 
     fn migrate_namespace(&mut self, to: NamespaceBuf) -> Result<()> {
+        // We need to preserve the namespace prefix if it was set.
+        // This prefix is used to prevent namespace collisions in the
+        // shared (lazy static) in memory structure.
         let effective_to = Self::effective_namespace(&self.namespace_prefix, to)?;
 
         self.lock()?
