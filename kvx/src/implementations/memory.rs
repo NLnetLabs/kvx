@@ -27,10 +27,7 @@ impl MemoryStore {
     }
 
     fn namespace_is_empty(&self, namespace: &NamespaceBuf) -> bool {
-        self.0
-            .get(namespace)
-            .map(|m| m.is_empty())
-            .unwrap_or_default()
+        self.0.get(namespace).map(|m| m.is_empty()).unwrap_or(true)
     }
 
     fn has_scope(&self, namespace: &NamespaceBuf, scope: &Scope) -> bool {
