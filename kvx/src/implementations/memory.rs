@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeSet, HashMap},
     fmt::Display,
+    str::FromStr,
     sync::{Mutex, MutexGuard},
 };
 
@@ -148,17 +149,38 @@ lazy_static! {
 
 #[derive(Debug)]
 pub(crate) struct Memory {
-    namespace: NamespaceBuf,
+    namespace_prefix: Option<String>,
+    effective_namespace: NamespaceBuf,
     inner: &'static Mutex<MemoryStore>,
     locks: &'static Mutex<Vec<Scope>>,
 }
 
 impl Memory {
-    pub(crate) fn new(namespace: impl Into<NamespaceBuf>) -> Self {
-        Memory {
-            namespace: namespace.into(),
+    pub(crate) fn new(namespace_prefix: Option<&str>, namespace: NamespaceBuf) -> Result<Self> {
+        let namespace_prefix = namespace_prefix.map(|s| s.to_string());
+        let effective_namespace = Self::effective_namespace(&namespace_prefix, namespace)?;
+
+        Ok(Memory {
+            namespace_prefix,
+            effective_namespace,
             inner: &STORE,
             locks: &LOCKS,
+        })
+    }
+
+    fn effective_namespace(
+        namespace_prefix: &Option<String>,
+        namespace: NamespaceBuf,
+    ) -> Result<NamespaceBuf> {
+        if let Some(pfx) = namespace_prefix {
+            NamespaceBuf::from_str(&format!("{}_{}", pfx, namespace)).map_err(|e| {
+                Error::UnknownScheme(format!(
+                    "cannot parse prefix '{}' for memory store: {}",
+                    pfx, e
+                ))
+            })
+        } else {
+            Ok(namespace)
         }
     }
 
@@ -171,7 +193,7 @@ impl Memory {
 
 impl Display for Memory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "KeyValueStore::Memory({})", self.namespace)
+        write!(f, "KeyValueStore::Memory({})", self.effective_namespace)
     }
 }
 
@@ -246,59 +268,64 @@ impl KeyValueStoreBackend for Memory {
 
 impl ReadStore for Memory {
     fn is_empty(&self) -> Result<bool> {
-        self.lock().map(|l| l.namespace_is_empty(&self.namespace))
+        self.lock()
+            .map(|l| l.namespace_is_empty(&self.effective_namespace))
     }
 
     fn has(&self, key: &Key) -> Result<bool> {
-        Ok(self.lock()?.has(&self.namespace, key))
+        Ok(self.lock()?.has(&self.effective_namespace, key))
     }
 
     fn has_scope(&self, scope: &Scope) -> Result<bool> {
-        Ok(self.lock()?.has_scope(&self.namespace, scope))
+        Ok(self.lock()?.has_scope(&self.effective_namespace, scope))
     }
 
     fn get(&self, key: &Key) -> Result<Option<serde_json::Value>> {
-        Ok(self.lock()?.get(&self.namespace, key))
+        Ok(self.lock()?.get(&self.effective_namespace, key))
     }
 
     fn list_keys(&self, scope: &Scope) -> Result<Vec<Key>> {
-        Ok(self.lock()?.list_keys(&self.namespace, scope))
+        Ok(self.lock()?.list_keys(&self.effective_namespace, scope))
     }
 
     fn list_scopes(&self) -> Result<Vec<Scope>> {
-        Ok(self.lock()?.list_scopes(&self.namespace))
+        Ok(self.lock()?.list_scopes(&self.effective_namespace))
     }
 }
 
 impl WriteStore for Memory {
     fn store(&self, key: &Key, value: serde_json::Value) -> Result<()> {
-        self.lock()?.insert(&self.namespace, key, value);
+        self.lock()?.insert(&self.effective_namespace, key, value);
         Ok(())
     }
 
     fn move_value(&self, from: &Key, to: &Key) -> Result<()> {
-        self.lock()?.move_value(&self.namespace, from, to)
+        self.lock()?.move_value(&self.effective_namespace, from, to)
     }
 
     fn delete(&self, key: &Key) -> Result<()> {
-        self.lock()?.delete(&self.namespace, key)
+        self.lock()?.delete(&self.effective_namespace, key)
     }
 
     fn delete_scope(&self, scope: &Scope) -> Result<()> {
-        self.lock()?.delete_scope(&self.namespace, scope)
+        self.lock()?.delete_scope(&self.effective_namespace, scope)
     }
 
     fn clear(&self) -> Result<()> {
-        self.lock()?.clear(&self.namespace)
+        self.lock()?.clear(&self.effective_namespace)
     }
 
     fn move_scope(&self, from: &Scope, to: &Scope) -> Result<()> {
-        self.lock()?.move_scope(&self.namespace, from, to)
+        self.lock()?.move_scope(&self.effective_namespace, from, to)
     }
 
     fn migrate_namespace(&mut self, to: NamespaceBuf) -> Result<()> {
-        self.lock()?.migrate_namespace(&self.namespace, &to)?;
-        self.namespace = to;
+        let effective_to = Self::effective_namespace(&self.namespace_prefix, to)?;
+
+        self.lock()?
+            .migrate_namespace(&self.effective_namespace, &effective_to)?;
+        self.effective_namespace = effective_to;
+
         Ok(())
     }
 }

@@ -98,15 +98,7 @@ impl KeyValueStore {
 
                 Box::new(Disk::new(&path, namespace.as_str())?)
             }
-            "memory" => Box::new(Memory::new(
-                format!(
-                    "{}_{}",
-                    storage_uri.host_str().unwrap_or_default(),
-                    namespace
-                )
-                .parse()
-                .unwrap_or(namespace),
-            )),
+            "memory" => Box::new(Memory::new(storage_uri.host_str(), namespace)?),
             #[cfg(feature = "postgres")]
             "postgres" => Box::new(crate::implementations::postgres::Postgres::new(
                 storage_uri,

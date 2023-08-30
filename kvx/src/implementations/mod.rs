@@ -498,7 +498,7 @@ mod tests {
     fn memory(namespace: NamespaceBuf) -> Memory {
         use crate::WriteStore;
 
-        let store = Memory::new(namespace);
+        let store = Memory::new(None, namespace).unwrap();
         store.clear().unwrap();
         store
     }
