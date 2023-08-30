@@ -116,9 +116,9 @@ impl MemoryStore {
     }
 
     fn migrate_namespace(&mut self, from: &NamespaceBuf, to: &NamespaceBuf) -> Result<()> {
-        if self.0.contains_key(to) {
+        if !self.namespace_is_empty(to) {
             Err(Error::NamespaceMigration(format!(
-                "target in-memory namespace {} already exists",
+                "target in-memory namespace {} is not empty",
                 to.as_str()
             )))
         } else {

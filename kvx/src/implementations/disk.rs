@@ -160,9 +160,15 @@ impl WriteStore for Disk {
         )))?;
 
         let new_root = root_parent.join(namespace.as_str());
-        if new_root.exists() {
+
+        let new_root_is_empty = new_root
+            .read_dir()
+            .map(|mut d| d.next().is_none())
+            .unwrap_or(true);
+
+        if !new_root_is_empty {
             Err(Error::NamespaceMigration(format!(
-                "new target dir already exists at: {}",
+                "new target dir already exists and is not empty at: {}",
                 new_root.to_string_lossy(),
             )))
         } else {
