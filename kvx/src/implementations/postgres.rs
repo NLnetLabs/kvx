@@ -114,7 +114,7 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
             .executor
             .executor()?
             .exec_query_opt(
-                "SELECT 1 FROM store WHERE namespace = $1 AND scope[:$3]  = $2",
+                "SELECT DISTINCT scope FROM store WHERE namespace = $1 AND scope[:$3]  = $2",
                 &[&self.namespace, scope.as_vec(), &scope.len()],
             )?
             .is_some())
