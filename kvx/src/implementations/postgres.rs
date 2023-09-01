@@ -92,7 +92,7 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
             .executor
             .executor()?
             .exec_query_opt(
-                "SELECT 1 FROM store WHERE namespace = $1",
+                "SELECT DISTINCT namespace FROM store WHERE namespace = $1",
                 &[&self.namespace],
             )?
             .is_none())
