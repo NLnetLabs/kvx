@@ -234,19 +234,24 @@ impl ReadStore for ReadOnlyMemory {
 
 impl KeyValueStoreBackend for Memory {
     fn transaction(&self, scope: &Scope, callback: TransactionCallback) -> Result<()> {
-        // try 10 times to acquire mutex
-        for i in 0..10 {
+        // Try to get a lock for 10 seconds. We may need to make this configurable.
+        // Dependent on use cases it may actually not be that exceptional for locks
+        // to be kept for even longer.
+        let wait_ms = 10;
+        let tries = 1000;
+
+        for i in 0..tries {
             let mut locks = self
                 .locks
                 .lock()
                 .map_err(|e| Error::MutexLock(e.to_string()))?;
 
             if locks.iter().any(|s| s.matches(scope)) {
-                if i >= 10 {
+                if i >= tries {
                     return Err(Error::MutexLock(format!("Scope {} already locked", scope)));
                 } else {
                     drop(locks);
-                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    std::thread::sleep(std::time::Duration::from_millis(wait_ms));
                 }
             } else {
                 locks.push(scope.clone());
