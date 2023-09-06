@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::Display,
     str::FromStr,
     sync::{Mutex, MutexGuard},
@@ -144,7 +144,16 @@ impl MemoryStore {
 
 lazy_static! {
     static ref STORE: Mutex<MemoryStore> = Mutex::new(MemoryStore::new());
-    static ref LOCKS: Mutex<Vec<Scope>> = Mutex::new(Vec::new());
+    static ref LOCKS: Mutex<HashSet<ScopeLock>> = Mutex::new(HashSet::new());
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct ScopeLock(String);
+
+impl ScopeLock {
+    fn new(namespace: &NamespaceBuf, scope: &Scope) -> Self {
+        ScopeLock(format!("{}/{}", namespace, scope))
+    }
 }
 
 #[derive(Debug)]
@@ -153,7 +162,7 @@ pub(crate) struct Memory {
     namespace_prefix: Option<String>,
     effective_namespace: NamespaceBuf,
     inner: &'static Mutex<MemoryStore>,
-    locks: &'static Mutex<Vec<Scope>>,
+    locks: &'static Mutex<HashSet<ScopeLock>>,
 }
 
 impl Memory {
@@ -240,13 +249,15 @@ impl KeyValueStoreBackend for Memory {
         let wait_ms = 10;
         let tries = 1000;
 
+        let scope_lock = ScopeLock::new(&self.effective_namespace, scope);
+
         for i in 0..tries {
             let mut locks = self
                 .locks
                 .lock()
                 .map_err(|e| Error::MutexLock(e.to_string()))?;
 
-            if locks.iter().any(|s| s.matches(scope)) {
+            if locks.contains(&scope_lock) {
                 if i >= tries {
                     return Err(Error::MutexLock(format!("Scope {} already locked", scope)));
                 } else {
@@ -254,7 +265,7 @@ impl KeyValueStoreBackend for Memory {
                     std::thread::sleep(std::time::Duration::from_millis(wait_ms));
                 }
             } else {
-                locks.push(scope.clone());
+                locks.insert(scope_lock.clone());
                 break;
             }
         }
@@ -266,7 +277,7 @@ impl KeyValueStoreBackend for Memory {
             .lock()
             .map_err(|e| Error::MutexLock(e.to_string()))?;
 
-        locks.retain(|s: &Scope| s != scope);
+        locks.remove(&scope_lock);
 
         Ok(())
     }
