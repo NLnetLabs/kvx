@@ -24,7 +24,7 @@ impl MemoryStore {
         self.0
             .get(namespace)
             .map(|m| m.contains_key(key))
-            .unwrap_or_default()
+            .unwrap_or(false)
     }
 
     fn namespace_is_empty(&self, namespace: &NamespaceBuf) -> bool {
