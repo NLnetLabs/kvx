@@ -18,12 +18,35 @@ use crate::{
 #[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Disk {
     root: PathBuf,
+    tmp: PathBuf,
 }
 
 impl Disk {
+    /// This will create a disk based store for the given (base) path and namespace.
+    ///
+    /// Under the hood this uses two directories: path/namespace and path/tmp.
+    /// The latter is used for temporary files for new values for existing keys. Such
+    /// values are written first and then renamed (moved) to avoid issues with partially
+    /// written files because of I/O issues (disk full) or concurrent reads of the key
+    /// as its value is being updated.
+    ///
+    /// Different instances of this disk based storage that use different namespaces,
+    /// but share the same (base) path will all use the same tmp directory. This is
+    /// not an issue as the temporary files will have unique names.
     pub fn new(path: &str, namespace: &str) -> Result<Self> {
         let root = PathBuf::from(path).join(namespace);
-        Ok(Disk { root })
+        let tmp = PathBuf::from(path).join("tmp");
+
+        if !tmp.exists() {
+            fs::create_dir_all(&tmp).map_err(|e| {
+                Error::IoWithContext(
+                    format!("Cannot create directory for tmp files: {}", tmp.display()),
+                    e,
+                )
+            })?;
+        }
+
+        Ok(Disk { root, tmp })
     }
 }
 
@@ -93,7 +116,32 @@ impl WriteStore for Disk {
             fs::create_dir_all(dir)?;
         }
 
-        fs::write(path, format!("{:#}", value).as_bytes())?;
+        if path.exists() {
+            // tempfile ensures that the temporary file is cleaned up in case it
+            // would be left behind because of some issue.
+            let tmp_file = tempfile::NamedTempFile::new_in(&self.tmp).map_err(|e| {
+                Error::IoWithContext(
+                    format!(
+                        "Issue writing tmp file for key: {}. Check permissions and space on disk.",
+                        key
+                    ),
+                    e,
+                )
+            })?;
+
+            fs::write(&tmp_file, format!("{:#}", value).as_bytes()).map_err(|e| {
+                Error::IoWithContext(
+                    format!(
+                        "Issue writing tmp file: {} for key: {}. Check permissions and space on disk.",
+                        tmp_file.as_ref().display(), key
+                    ),
+                    e,
+                )
+            })?;
+            fs::rename(tmp_file, path)?;
+        } else {
+            fs::write(path, format!("{:#}", value).as_bytes())?;
+        }
 
         Ok(())
     }
