@@ -29,7 +29,7 @@ impl Disk {
 
 impl Display for Disk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "KeyValueStore::Disk({})", self.root.to_string_lossy())
+        write!(f, "KeyValueStore::Disk({})", self.root.display())
     }
 }
 
@@ -171,33 +171,42 @@ impl WriteStore for Disk {
     fn migrate_namespace(&mut self, namespace: kvx_types::NamespaceBuf) -> Result<()> {
         let root_parent = self.root.parent().ok_or(Error::NamespaceMigration(format!(
             "cannot get parent dir for: {}",
-            self.root.to_string_lossy()
+            self.root.display()
         )))?;
 
         let new_root = root_parent.join(namespace.as_str());
 
-        let new_root_is_empty = new_root
-            .read_dir()
-            .map(|mut d| d.next().is_none())
-            .unwrap_or(true);
-
-        if !new_root_is_empty {
-            Err(Error::NamespaceMigration(format!(
-                "new target dir already exists and is not empty at: {}",
-                new_root.to_string_lossy(),
-            )))
-        } else {
-            fs::rename(&self.root, &new_root).map_err(|e| {
-                Error::NamespaceMigration(format!(
-                    "cannot rename dir from {} to {}. Error: {}",
-                    self.root.to_string_lossy(),
-                    new_root.to_string_lossy(),
-                    e
-                ))
-            })?;
-            self.root = new_root;
-            Ok(())
+        if new_root.exists() {
+            // If the target directory already exists, then it must be empty.
+            if new_root
+                .read_dir()
+                .map_err(|e| {
+                    Error::NamespaceMigration(format!(
+                        "cannot read directory '{}'. Error: {}",
+                        new_root.display(),
+                        e,
+                    ))
+                })?
+                .next()
+                .is_some()
+            {
+                return Err(Error::NamespaceMigration(format!(
+                    "target dir {} already exists and is not empty",
+                    new_root.display(),
+                )));
+            }
         }
+
+        fs::rename(&self.root, &new_root).map_err(|e| {
+            Error::NamespaceMigration(format!(
+                "cannot rename dir from {} to {}. Error: {}",
+                self.root.display(),
+                new_root.display(),
+                e
+            ))
+        })?;
+        self.root = new_root;
+        Ok(())
     }
 }
 
