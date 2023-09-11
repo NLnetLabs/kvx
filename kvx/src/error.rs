@@ -45,4 +45,8 @@ pub enum Error {
     /// [`Key`]: ../kvx/struct.Key.html
     #[error("unknown key")]
     UnknownKey,
+
+    /// Namespace migration issue
+    #[error("namespace migration issue: {0}")]
+    NamespaceMigration(String),
 }
