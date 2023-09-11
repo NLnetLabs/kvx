@@ -93,7 +93,22 @@ impl WriteStore for Disk {
             fs::create_dir_all(dir)?;
         }
 
-        fs::write(path, format!("{:#}", value).as_bytes())?;
+        if path.exists() {
+            let tmp_file = PathBuf::from(format!("{}.swap", path.to_string_lossy()));
+
+            fs::write(&tmp_file, format!("{:#}", value).as_bytes()).map_err(|e| {
+                Error::IoWithContext(
+                    format!(
+                        "Issue writing tmp file: {} for key: {}. Check permissions and space on disk.",
+                        tmp_file.to_string_lossy(), key
+                    ),
+                    e,
+                )
+            })?;
+            fs::rename(tmp_file, path)?;
+        } else {
+            fs::write(path, format!("{:#}", value).as_bytes())?;
+        }
 
         Ok(())
     }
@@ -332,7 +347,10 @@ fn list_files_recursive(dir: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
 
     for result in fs::read_dir(dir)? {
         let path = result?.path();
-        if path.is_dir() {
+        if path.ends_with(".swap") {
+            // skip any tmp .swap files left on device
+            continue;
+        } else if path.is_dir() {
             files.extend(list_files_recursive(path)?);
         } else {
             files.push(path);
