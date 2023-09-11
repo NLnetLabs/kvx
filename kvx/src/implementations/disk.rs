@@ -18,12 +18,22 @@ use crate::{
 #[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Disk {
     root: PathBuf,
+    tmp: PathBuf,
 }
 
 impl Disk {
+    /// This will create a disk based store for the given (base) path and namespace.
+    ///
+    /// Under the hood this uses two directories which will only be created when
+    /// values are written: path/namespace and path/tmp/namespace. The latter is
+    /// used for temporary files for new values for existing keys. Such values are
+    /// written first and then renamed (moved) to avoid issues with partially
+    /// written files because of I/O issues (disk full) or concurrent reads of the
+    /// key as its value is being updated.
     pub fn new(path: &str, namespace: &str) -> Result<Self> {
         let root = PathBuf::from(path).join(namespace);
-        Ok(Disk { root })
+        let tmp = PathBuf::from(path).join("tmp").join(namespace);
+        Ok(Disk { root, tmp })
     }
 }
 
@@ -94,13 +104,32 @@ impl WriteStore for Disk {
         }
 
         if path.exists() {
-            let tmp_file = PathBuf::from(format!("{}.swap", path.to_string_lossy()));
+            if !self.tmp.exists() {
+                fs::create_dir_all(&self.tmp).map_err(|e| {
+                    Error::IoWithContext(
+                        format!("Cannot create temp dir: {}", self.tmp.display()),
+                        e,
+                    )
+                })?;
+            }
+
+            // tempfile ensures that the temporary file is cleaned up in case it
+            // would be left behind because of some issue.
+            let tmp_file = tempfile::NamedTempFile::new_in(&self.tmp).map_err(|e| {
+                Error::IoWithContext(
+                    format!(
+                        "Issue writing tmp file for key: {}. Check permissions and space on disk.",
+                        key
+                    ),
+                    e,
+                )
+            })?;
 
             fs::write(&tmp_file, format!("{:#}", value).as_bytes()).map_err(|e| {
                 Error::IoWithContext(
                     format!(
                         "Issue writing tmp file: {} for key: {}. Check permissions and space on disk.",
-                        tmp_file.to_string_lossy(), key
+                        tmp_file.as_ref().display(), key
                     ),
                     e,
                 )
@@ -356,10 +385,7 @@ fn list_files_recursive(dir: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
 
     for result in fs::read_dir(dir)? {
         let path = result?.path();
-        if path.ends_with(".swap") {
-            // skip any tmp .swap files left on device
-            continue;
-        } else if path.is_dir() {
+        if path.is_dir() {
             files.extend(list_files_recursive(path)?);
         } else {
             files.push(path);
