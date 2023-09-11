@@ -24,15 +24,28 @@ pub struct Disk {
 impl Disk {
     /// This will create a disk based store for the given (base) path and namespace.
     ///
-    /// Under the hood this uses two directories which will only be created when
-    /// values are written: path/namespace and path/tmp/namespace. The latter is
-    /// used for temporary files for new values for existing keys. Such values are
-    /// written first and then renamed (moved) to avoid issues with partially
-    /// written files because of I/O issues (disk full) or concurrent reads of the
-    /// key as its value is being updated.
+    /// Under the hood this uses two directories: path/namespace and path/tmp.
+    /// The latter is used for temporary files for new values for existing keys. Such
+    /// values are written first and then renamed (moved) to avoid issues with partially
+    /// written files because of I/O issues (disk full) or concurrent reads of the key
+    /// as its value is being updated.
+    ///
+    /// Different instances of this disk based storage that use different namespaces,
+    /// but share the same (base) path will all use the same tmp directory. This is
+    /// not an issue as the temporary files will have unique names.
     pub fn new(path: &str, namespace: &str) -> Result<Self> {
         let root = PathBuf::from(path).join(namespace);
-        let tmp = PathBuf::from(path).join("tmp").join(namespace);
+        let tmp = PathBuf::from(path).join("tmp");
+
+        if !tmp.exists() {
+            fs::create_dir_all(&tmp).map_err(|e| {
+                Error::IoWithContext(
+                    format!("Cannot create directory for tmp files: {}", tmp.display()),
+                    e,
+                )
+            })?;
+        }
+
         Ok(Disk { root, tmp })
     }
 }
@@ -104,15 +117,6 @@ impl WriteStore for Disk {
         }
 
         if path.exists() {
-            if !self.tmp.exists() {
-                fs::create_dir_all(&self.tmp).map_err(|e| {
-                    Error::IoWithContext(
-                        format!("Cannot create temp dir: {}", self.tmp.display()),
-                        e,
-                    )
-                })?;
-            }
-
             // tempfile ensures that the temporary file is cleaned up in case it
             // would be left behind because of some issue.
             let tmp_file = tempfile::NamedTempFile::new_in(&self.tmp).map_err(|e| {
