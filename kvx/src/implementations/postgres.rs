@@ -13,7 +13,7 @@ use r2d2_postgres::{
 use url::Url;
 
 use crate::{
-    Key, KeyValueStoreBackend, ReadStore, Result, Scope, SegmentBuf, TransactionCallback,
+    Error, Key, KeyValueStoreBackend, ReadStore, Result, Scope, SegmentBuf, TransactionCallback,
     WriteStore,
 };
 
@@ -85,6 +85,19 @@ impl<E: HasExecutor> KeyValueStoreBackend for Postgres<E> {
 }
 
 impl<E: HasExecutor> ReadStore for Postgres<E> {
+    fn is_empty(&self) -> Result<bool> {
+        // We use a shared table for multiple namespaces. We consider this
+        // instance empty if there are no entries for this namespace.
+        Ok(self
+            .executor
+            .executor()?
+            .exec_query_opt(
+                "SELECT DISTINCT namespace FROM store WHERE namespace = $1",
+                &[&self.namespace],
+            )?
+            .is_none())
+    }
+
     fn has(&self, key: &Key) -> Result<bool> {
         Ok(self
             .executor
@@ -101,7 +114,7 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
             .executor
             .executor()?
             .exec_query_opt(
-                "SELECT 1 FROM store WHERE namespace = $1 AND scope[:$3]  = $2",
+                "SELECT DISTINCT scope FROM store WHERE namespace = $1 AND scope[:$3]  = $2",
                 &[&self.namespace, scope.as_vec(), &scope.len()],
             )?
             .is_some())
@@ -145,9 +158,7 @@ impl<E: HasExecutor> ReadStore for Postgres<E> {
                 &[&self.namespace],
             )?
             .into_iter()
-            .flat_map(|row| {
-                Scope::new(row.get(0)).sub_scopes()
-            })
+            .flat_map(|row| Scope::new(row.get(0)).sub_scopes())
             .collect::<Vec<Scope>>())
     }
 }
@@ -209,6 +220,61 @@ impl<E: HasExecutor> WriteStore for Postgres<E> {
         self.executor
             .executor()?
             .exec_execute("DELETE FROM store WHERE namespace = $1", &[&self.namespace])?;
+
+        Ok(())
+    }
+
+    fn migrate_namespace(&mut self, to: NamespaceBuf) -> Result<()> {
+        let mut client = self.executor.executor()?;
+        let mut transaction = client.exec_transaction()?;
+        transaction.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", &[])?;
+
+        let postgres = Postgres {
+            namespace: self.namespace.clone(),
+            executor: RefCell::new(transaction),
+        };
+
+        if postgres
+            .executor
+            .executor()?
+            .exec_query_opt(
+                "SELECT DISTINCT namespace FROM store WHERE namespace = $1",
+                &[&self.namespace],
+            )?
+            .is_none()
+        {
+            postgres.executor.into_inner().rollback()?; // make sure transaction is finished
+
+            return Err(Error::NamespaceMigration(format!(
+                "original namespace {} not found in database",
+                &self.namespace
+            )));
+        }
+
+        if postgres
+            .executor
+            .executor()?
+            .exec_query_opt(
+                "SELECT DISTINCT namespace FROM store WHERE namespace = $1",
+                &[&to],
+            )?
+            .is_some()
+        {
+            postgres.executor.into_inner().rollback()?; // make sure transaction is finished
+
+            return Err(Error::NamespaceMigration(format!(
+                "target namespace {} already exists in database",
+                &self.namespace
+            )));
+        }
+
+        postgres.executor.executor()?.exec_execute(
+            "UPDATE store SET namespace = $2 WHERE namespace = $1",
+            &[&self.namespace, &to],
+        )?;
+        postgres.executor.into_inner().commit()?;
+
+        self.namespace = to;
 
         Ok(())
     }
