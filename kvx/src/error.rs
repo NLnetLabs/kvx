@@ -52,4 +52,7 @@ pub enum Error {
     /// Namespace migration issue
     #[error("namespace migration issue: {0}")]
     NamespaceMigration(String),
+
+    #[error("{0}")]
+    Other(String),
 }

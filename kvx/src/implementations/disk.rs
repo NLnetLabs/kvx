@@ -15,6 +15,8 @@ use crate::{
     WriteStore,
 };
 
+pub const LOCK_FILE_NAME: &str = "lockfile.lock";
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Disk {
     root: PathBuf,
@@ -111,6 +113,10 @@ impl WriteStore for Disk {
     fn store(&self, key: &Key, value: Value) -> Result<()> {
         let path = key.as_path(&self.root);
         let dir = key.scope().as_path(&self.root);
+
+        if key.name().as_str() == LOCK_FILE_NAME {
+            return Err(Error::InvalidKey);
+        }
 
         if !dir.try_exists().unwrap_or_default() {
             fs::create_dir_all(dir)?;
@@ -338,7 +344,7 @@ impl FileLock {
             fs::create_dir_all(path)?;
         }
 
-        let lock_path = path.join("lockfile.lock");
+        let lock_path = path.join(LOCK_FILE_NAME);
 
         let file = loop {
             let file = OpenOptions::new()
@@ -391,7 +397,7 @@ fn list_files_recursive(dir: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
         let path = result?.path();
         if path.is_dir() {
             files.extend(list_files_recursive(path)?);
-        } else {
+        } else if !path.ends_with(LOCK_FILE_NAME) {
             files.push(path);
         }
     }
