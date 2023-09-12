@@ -4,8 +4,7 @@ use std::{
 };
 
 use crate::{
-    segment, Error, Key, KeyValueStore, KeyValueStoreBackend, ReadStore, Result, Scope, Segment,
-    SegmentBuf, WriteStore,
+    segment, Error, Key, KeyValueStore, KeyValueStoreBackend, Result, Scope, Segment, SegmentBuf,
 };
 
 fn current_time() -> u64 {
@@ -186,31 +185,45 @@ pub trait Queue {
     const RESCHEDULE_AFTER: Duration = Duration::from_secs(15 * 60);
     const REMOVE_AFTER: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
-    fn jobs_remaining(&self) -> Result<usize>;
-    fn schedule_job(
+    fn pending_scope() -> Scope {
+        Scope::from_segment(PendingTask::SEGMENT)
+    }
+
+    /// Returns the number of pending tasks remaining
+    fn pending_tasks_remaining(&self) -> Result<usize>;
+
+    /// Schedule a task. If a task with this name exists, replace it.
+    fn schedule_task(
         &self,
         name: SegmentBuf,
         value: serde_json::Value,
         timestamp: Option<u64>,
     ) -> Result<()>;
-    fn exists(&self, name: SegmentBuf) -> Option<u64>;
-    fn finished_job(&self, task: Task) -> Result<()>;
-    fn claim_job(&self) -> Option<Task>;
-    fn cleanup(
-        &self,
-        reschedule_after: Option<&Duration>,
-        remove_after: Option<&Duration>,
-    ) -> Result<()>;
+
+    /// Returns the scheduled time for the named task, if any.
+    fn pending_task_scheduled(&self, name: SegmentBuf) -> Result<Option<u64>>;
+
+    /// Marks a running task as finished. Fails if the task is not running.
+    fn finish_running_task(&self, task: Task) -> Result<()>;
+
+    /// Claims the next scheduled pending task, if any.
+    fn claim_scheduled_pending_task(&self) -> Result<Option<Task>>;
+
+    /// Reschedules running tasks that have timed out.
+    fn reschedule_long_running_tasks(&self, reschedule_after: Option<&Duration>) -> Result<()>;
+
+    /// Cleans finished tasks.
+    fn clean_up_finished_tasks(&self, remove_after: Option<&Duration>) -> Result<()>;
 }
 
 impl Queue for KeyValueStore {
-    fn jobs_remaining(&self) -> Result<usize> {
-        Ok(self
-            .list_keys(&Scope::from_segment(PendingTask::SEGMENT))?
-            .len())
+    fn pending_tasks_remaining(&self) -> Result<usize> {
+        self.execute(&Self::pending_scope(), |kv| {
+            kv.list_keys(&Self::pending_scope()).map(|list| list.len())
+        })
     }
 
-    fn schedule_job(
+    fn schedule_task(
         &self,
         name: SegmentBuf,
         value: serde_json::Value,
@@ -246,7 +259,7 @@ impl Queue for KeyValueStore {
         )
     }
 
-    fn finished_job(&self, task: Task) -> Result<()> {
+    fn finish_running_task(&self, task: Task) -> Result<()> {
         let finish_timestamp = current_time();
         match task.state.clone() {
             TaskState::Running(RunningTask { task_name, .. }) => {
@@ -254,69 +267,63 @@ impl Queue for KeyValueStore {
                     name: task_name,
                     finish_timestamp,
                 });
-                self.move_value(&task.state.into(), &finished.into())
+
+                let from_key: Key = task.state.into();
+                let to_key: Key = finished.into();
+
+                // Note in this case, the scopes differ, so we need a global lock
+                let lock_scope = Scope::global();
+
+                self.execute(&lock_scope, |kv| kv.move_value(&from_key, &to_key))
             }
-            _ => Err(Error::Unknown),
+            _ => Err(Error::Other(format!(
+                "Cannot finish task {}. It is not running.",
+                task.name()
+            ))),
         }
     }
 
-    fn claim_job(&self) -> Option<Task> {
-        let mut claimed: Option<Task> = None;
-        let claimed_ref = &mut claimed;
+    fn claim_scheduled_pending_task(&self) -> Result<Option<Task>> {
+        self.execute(&Scope::global(), |kv| {
+            let now = current_time();
+            let keys = kv.list_keys(&Scope::from_segment(PendingTask::SEGMENT))?;
 
-        let claim_transaction = self.transaction(
-            &Scope::global(),
-            &mut move |s: &dyn KeyValueStoreBackend| {
-                let now = current_time();
-                let keys = s.list_keys(&Scope::from_segment(PendingTask::SEGMENT))?;
-
-                let candidate = keys
-                    .into_iter()
-                    .filter_map(|k| {
-                        let task = PendingTask::try_from(k).ok()?;
-                        if task.schedule_timestamp <= now {
-                            Some(task)
-                        } else {
-                            None
-                        }
-                    })
-                    .min_by_key(|s| s.schedule_timestamp);
-
-                if let Some(name) = candidate {
-                    let pending = TaskState::Pending(name.clone());
-                    if let Some(value) = s.get(&pending.clone().into())? {
-                        let running_task = Task {
-                            state: TaskState::Running(RunningTask {
-                                task_name: name,
-                                claim_timestamp: now,
-                            }),
-                            value,
-                        };
-
-                        s.move_value(&pending.into(), &running_task.state.clone().into())?;
-
-                        *claimed_ref = Some(running_task);
+            let candidate = keys
+                .into_iter()
+                .filter_map(|k| {
+                    let task = PendingTask::try_from(k).ok()?;
+                    if task.schedule_timestamp <= now {
+                        Some(task)
+                    } else {
+                        None
                     }
+                })
+                .min_by_key(|s| s.schedule_timestamp);
+
+            if let Some(name) = candidate {
+                let pending = TaskState::Pending(name.clone());
+                if let Some(value) = kv.get(&pending.clone().into())? {
+                    let running_task = Task {
+                        state: TaskState::Running(RunningTask {
+                            task_name: name,
+                            claim_timestamp: now,
+                        }),
+                        value,
+                    };
+
+                    kv.move_value(&pending.into(), &running_task.state.clone().into())?;
+
+                    Ok(Some(running_task))
+                } else {
+                    Ok(None)
                 }
-
-                Ok(())
-            },
-        );
-
-        match claim_transaction {
-            Ok(_) => claimed,
-            Err(e) => {
-                eprintln!("failed to claim job {:?}", e);
-                None
+            } else {
+                Ok(None)
             }
-        }
+        })
     }
 
-    fn cleanup(
-        &self,
-        reschedule_after: Option<&Duration>,
-        remove_after: Option<&Duration>,
-    ) -> Result<()> {
+    fn reschedule_long_running_tasks(&self, reschedule_after: Option<&Duration>) -> Result<()> {
         let now = current_time();
 
         let reschedule_after = reschedule_after.unwrap_or(&KeyValueStore::RESCHEDULE_AFTER);
@@ -349,7 +356,11 @@ impl Queue for KeyValueStore {
 
                 Ok(())
             },
-        )?;
+        )
+    }
+
+    fn clean_up_finished_tasks(&self, remove_after: Option<&Duration>) -> Result<()> {
+        let now = current_time();
 
         let remove_after = remove_after.unwrap_or(&KeyValueStore::REMOVE_AFTER);
         let remove_timeout = now - remove_after.as_secs();
@@ -373,18 +384,19 @@ impl Queue for KeyValueStore {
 
                 Ok(())
             },
-        )?;
-
-        Ok(())
+        )
     }
 
-    fn exists(&self, name: SegmentBuf) -> Option<u64> {
-        self.list_keys(&Scope::from_segment(PendingTask::SEGMENT))
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|k| PendingTask::try_from(k).ok())
-            .find(|p| p.name == name)
-            .map(|p| p.schedule_timestamp)
+    fn pending_task_scheduled(&self, name: SegmentBuf) -> Result<Option<u64>> {
+        self.execute(&Self::pending_scope(), |kv| {
+            kv.list_keys(&Scope::from_segment(PendingTask::SEGMENT))
+                .map(|keys| {
+                    keys.into_iter()
+                        .filter_map(|k| PendingTask::try_from(k).ok())
+                        .find(|p| p.name == name)
+                        .map(|p| p.schedule_timestamp)
+                })
+        })
     }
 }
 
@@ -419,7 +431,7 @@ mod tests {
                     let segment = Segment::parse(name).unwrap();
                     let value = Value::from("value");
 
-                    queue.schedule_job(segment.into(), value, None).unwrap();
+                    queue.schedule_task(segment.into(), value, None).unwrap();
                     println!("> Scheduled job {}", &name);
                 }
             });
@@ -434,13 +446,13 @@ mod tests {
                 s.spawn(move || {
                     let queue = queue_store("test_queue");
 
-                    while queue.jobs_remaining().unwrap() > 0 {
-                        if let Some(task) = queue.claim_job() {
+                    while queue.pending_tasks_remaining().unwrap() > 0 {
+                        if let Some(task) = queue.claim_scheduled_pending_task().unwrap() {
                             let name = Into::<Key>::into(task.state.clone());
                             println!("- Worker {i} claimed job {name}");
 
                             std::thread::sleep(std::time::Duration::from_millis(5));
-                            queue.finished_job(task).unwrap();
+                            queue.finish_running_task(task).unwrap();
                             println!("+ Worker {i} finished job {name}");
                         }
 
@@ -467,7 +479,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cleanup() {
+    fn test_reschedule_long_running() {
         let queue = queue_store("test_cleanup_queue");
         queue.inner.clear().unwrap();
 
@@ -475,29 +487,31 @@ mod tests {
         let segment = Segment::parse(name).unwrap();
         let value = Value::from("value");
 
-        queue.schedule_job(segment.into(), value, None).unwrap();
+        queue.schedule_task(segment.into(), value, None).unwrap();
 
-        assert_eq!(queue.jobs_remaining().unwrap(), 1);
+        assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
 
-        let job = queue.claim_job();
+        let job = queue.claim_scheduled_pending_task().unwrap();
 
         assert!(job.is_some());
-        assert_eq!(queue.jobs_remaining().unwrap(), 0);
+        assert_eq!(queue.pending_tasks_remaining().unwrap(), 0);
 
-        let job = queue.claim_job();
+        let job = queue.claim_scheduled_pending_task().unwrap();
 
         assert!(job.is_none());
 
-        queue.cleanup(Some(&Duration::from_secs(0)), None).unwrap();
+        queue
+            .reschedule_long_running_tasks(Some(&Duration::from_secs(0)))
+            .unwrap();
 
-        let existing = queue.exists(segment.into());
+        let existing = queue.pending_task_scheduled(segment.into()).unwrap();
 
         assert!(existing.is_some());
-        assert_eq!(queue.jobs_remaining().unwrap(), 1);
+        assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
 
-        let job = queue.claim_job();
+        let job = queue.claim_scheduled_pending_task().unwrap();
 
         assert!(job.is_some());
-        assert_eq!(queue.jobs_remaining().unwrap(), 0);
+        assert_eq!(queue.pending_tasks_remaining().unwrap(), 0);
     }
 }
