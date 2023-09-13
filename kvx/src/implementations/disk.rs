@@ -144,7 +144,19 @@ impl WriteStore for Disk {
                     e,
                 )
             })?;
-            fs::rename(tmp_file, path)?;
+
+            // persist ensures that the temporary file is not deleted
+            // when the instance is dropped.
+            tmp_file.persist(&path).map_err(|e| {
+                Error::IoWithContext(
+                    format!(
+                        "Cannot rename temp file {} to {}.",
+                        e.file.path().display(),
+                        path.display()
+                    ),
+                    e.error,
+                )
+            })?;
         } else {
             fs::write(path, format!("{:#}", value).as_bytes())?;
         }
