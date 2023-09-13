@@ -192,6 +192,25 @@ pub struct RescheduledTask {
     pub schedule_timestamp: u64,
 }
 
+/// Defines scheduling behaviour in case a task by the same name already exists.
+#[derive(Clone, Copy, Debug)]
+pub enum Existing {
+    /// Reschedule existing, keeping the old value and ignoring the new value.
+    ///
+    /// NOTE: If the new value should be used, then use KeepNew instead.
+    Reschedule,
+    /// Store new task, replace old task if it exists.
+    KeepNew,
+    /// Keep existing, discard new.
+    KeepOld,
+    /// Keep existing and add new.
+    ///
+    /// NOTE: The task key is determined by its name and scheduled time.
+    ///       If both the existing and the new scheduled time are the
+    ///       same, then this results in replacing the existing task.
+    KeepBoth,
+}
+
 pub trait Queue {
     const RESCHEDULE_AFTER: Duration = Duration::from_secs(15 * 60);
     const REMOVE_AFTER: Duration = Duration::from_secs(7 * 24 * 60 * 60);
@@ -203,12 +222,13 @@ pub trait Queue {
     /// Returns the number of pending tasks remaining
     fn pending_tasks_remaining(&self) -> Result<usize>;
 
-    /// Schedule a task. If a task with this name exists, replace it.
+    /// Schedule a task.
     fn schedule_task(
         &self,
         name: SegmentBuf,
         value: serde_json::Value,
         timestamp: Option<u64>,
+        mode: Existing,
     ) -> Result<()>;
 
     /// Returns the scheduled time for the named task, if any.
@@ -243,6 +263,7 @@ impl Queue for KeyValueStore {
         name: SegmentBuf,
         value: serde_json::Value,
         timestamp: Option<u64>,
+        mode: Existing,
     ) -> Result<()> {
         let new_task = PendingTask {
             name,
@@ -259,17 +280,33 @@ impl Queue for KeyValueStore {
                     .find(|p| p.name == new_task.name);
 
                 if let Some(existing) = possible_existing {
-                    // reschedule existing task
-                    s.move_value(
-                        &TaskState::Pending(existing).into(),
-                        &TaskState::Pending(new_task.clone()).into(),
-                    )?;
+                    match mode {
+                        Existing::KeepOld => {
+                            // nothing to do
+                            Ok(())
+                        }
+                        Existing::KeepBoth => {
+                            // just save the new task, possibly overwriting the
+                            // existing task if the name and scheduled time are
+                            // the same
+                            s.store(&TaskState::Pending(new_task.clone()).into(), value.clone())
+                        }
+                        Existing::Reschedule => {
+                            // reschedule existing task
+                            s.move_value(
+                                &TaskState::Pending(existing).into(),
+                                &TaskState::Pending(new_task.clone()).into(),
+                            )
+                        }
+                        Existing::KeepNew => {
+                            s.delete(&TaskState::Pending(existing).into())?;
+                            s.store(&TaskState::Pending(new_task.clone()).into(), value.clone())
+                        }
+                    }
                 } else {
                     // store new task
-                    s.store(&TaskState::Pending(new_task.clone()).into(), value.clone())?;
+                    s.store(&TaskState::Pending(new_task.clone()).into(), value.clone())
                 }
-
-                Ok(())
             },
         )
     }
@@ -445,13 +482,14 @@ impl Queue for KeyValueStore {
 mod tests {
     use std::{thread, time::Duration};
 
-    use kvx_types::Key;
+    use kvx_macros::segment;
+    use kvx_types::{Key, SegmentBuf};
     use serde_json::Value;
     use url::Url;
 
     use super::{FinishedTask, PendingTask, Queue, RunningTask};
     use crate::{
-        queue::{current_time, RescheduledTask},
+        queue::{current_time, Existing, RescheduledTask},
         KeyValueStore, Namespace, ReadStore, Scope, Segment,
     };
 
@@ -475,7 +513,9 @@ mod tests {
                     let segment = Segment::parse(name).unwrap();
                     let value = Value::from("value");
 
-                    queue.schedule_task(segment.into(), value, None).unwrap();
+                    queue
+                        .schedule_task(segment.into(), value, None, Existing::Reschedule)
+                        .unwrap();
                     println!("> Scheduled job {}", &name);
                 }
             });
@@ -531,7 +571,9 @@ mod tests {
         let segment = Segment::parse(name).unwrap();
         let value = Value::from("value");
 
-        queue.schedule_task(segment.into(), value, None).unwrap();
+        queue
+            .schedule_task(segment.into(), value, None, Existing::Reschedule)
+            .unwrap();
 
         assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
 
@@ -569,7 +611,9 @@ mod tests {
         let value = Value::from("value");
 
         // Schedule the task
-        queue.schedule_task(segment.into(), value, None).unwrap();
+        queue
+            .schedule_task(segment.into(), value, None, Existing::KeepNew)
+            .unwrap();
         assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
 
         // Get the task
@@ -593,5 +637,128 @@ mod tests {
 
         // There should not be a new pending task
         assert_eq!(queue.pending_tasks_remaining().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_schedule_with_existing_task() {
+        let queue = queue_store("test_cleanup_queue");
+        queue.inner.clear().unwrap();
+
+        let name: SegmentBuf = segment!("task").into();
+        let value_1 = Value::from("value_1");
+        let value_2 = Value::from("value_2");
+
+        let in_a_while = current_time() + 180;
+
+        // Schedule a task, and then schedule again replacing the old
+        {
+            queue
+                .schedule_task(name.clone(), value_1.clone(), None, Existing::KeepNew)
+                .unwrap();
+            assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
+
+            // Schedule again, replacing the existing task
+            queue
+                .schedule_task(name.clone(), value_2.clone(), None, Existing::KeepNew)
+                .unwrap();
+            assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
+
+            // We should have one task and the value should match the new task.
+            let task = queue.claim_scheduled_pending_task().unwrap().unwrap();
+            assert_eq!(task.value, value_2);
+        }
+
+        // Schedule a task, and then schedule again keeping the old
+        {
+            queue
+                .schedule_task(name.clone(), value_1.clone(), None, Existing::KeepNew)
+                .unwrap();
+            queue
+                .schedule_task(
+                    name.clone(),
+                    value_2.clone(),
+                    Some(in_a_while),
+                    Existing::KeepOld,
+                )
+                .unwrap();
+
+            // there should be only one task, it should not be rescheduled,
+            // so we get get it and its value should match old.
+            assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
+            let task = queue.claim_scheduled_pending_task().unwrap().unwrap();
+            assert_eq!(task.value, value_1);
+        }
+
+        // Schedule a task, and then schedule again rescheduling it
+        {
+            queue
+                .schedule_task(name.clone(), value_1.clone(), None, Existing::KeepNew)
+                .unwrap();
+
+            // we expect one pending task
+            assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
+
+            // reschedule that task to 3 minutes from now
+            queue
+                .schedule_task(
+                    name.clone(),
+                    value_2.clone(),
+                    Some(in_a_while),
+                    Existing::Reschedule,
+                )
+                .unwrap();
+
+            // when we try to claim a scheduled task, we should
+            // get nothing because our one and only task is not
+            // due yet.
+            assert!(queue.claim_scheduled_pending_task().unwrap().is_none());
+
+            // reschedule that task to now
+            queue
+                .schedule_task(name.clone(), value_2.clone(), None, Existing::Reschedule)
+                .unwrap();
+
+            // and when we get it its value should match the original task
+            // that was rescheduled two times.
+            let task = queue.claim_scheduled_pending_task().unwrap().unwrap();
+            assert_eq!(task.value, value_1);
+        }
+
+        // Schedule a task, then schedule a new task keeping both.
+        {
+            // In case we use the same time..
+            queue
+                .schedule_task(name.clone(), value_1.clone(), None, Existing::KeepNew)
+                .unwrap();
+            queue
+                .schedule_task(name.clone(), value_2.clone(), None, Existing::KeepBoth)
+                .unwrap();
+
+            // We should see only task - since name and time together are the unique key
+            // The value should match the new task.
+            assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
+            let task = queue.claim_scheduled_pending_task().unwrap().unwrap();
+            assert_eq!(task.value, value_2);
+
+            // In case we use a new time, then we should have two pending tasks.
+            queue
+                .schedule_task(name.clone(), value_1.clone(), None, Existing::KeepNew)
+                .unwrap();
+            queue
+                .schedule_task(
+                    name.clone(),
+                    value_2.clone(),
+                    Some(in_a_while),
+                    Existing::KeepBoth,
+                )
+                .unwrap();
+
+            // Two pending tasks, we can get only one and its value matches old
+            assert_eq!(queue.pending_tasks_remaining().unwrap(), 2);
+            let task = queue.claim_scheduled_pending_task().unwrap().unwrap();
+            assert_eq!(task.value, value_1);
+            assert!(queue.claim_scheduled_pending_task().unwrap().is_none());
+            assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
+        }
     }
 }
