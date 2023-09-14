@@ -198,9 +198,12 @@ pub enum Existing {
     /// Reschedule existing, keeping the old value and ignoring the new value.
     ///
     /// NOTE: If the new value should be used, then use KeepNew instead.
-    Reschedule,
+    RescheduleToNewTime,
     /// Store new task, replace old task if it exists.
     KeepNew,
+    /// Store new task, replace old task if it exists, keep the soonest
+    /// scheduled time.
+    KeepNewScheduleSoonest,
     /// Keep existing, discard new.
     KeepOld,
     /// Keep existing and add new.
@@ -265,7 +268,7 @@ impl Queue for KeyValueStore {
         timestamp: Option<u64>,
         mode: Existing,
     ) -> Result<()> {
-        let new_task = PendingTask {
+        let mut new_task = PendingTask {
             name,
             schedule_timestamp: timestamp.unwrap_or(current_time()),
         };
@@ -291,7 +294,7 @@ impl Queue for KeyValueStore {
                             // the same
                             s.store(&TaskState::Pending(new_task.clone()).into(), value.clone())
                         }
-                        Existing::Reschedule => {
+                        Existing::RescheduleToNewTime => {
                             // reschedule existing task
                             s.move_value(
                                 &TaskState::Pending(existing).into(),
@@ -299,6 +302,12 @@ impl Queue for KeyValueStore {
                             )
                         }
                         Existing::KeepNew => {
+                            s.delete(&TaskState::Pending(existing).into())?;
+                            s.store(&TaskState::Pending(new_task.clone()).into(), value.clone())
+                        }
+                        Existing::KeepNewScheduleSoonest => {
+                            new_task.schedule_timestamp =
+                                new_task.schedule_timestamp.min(existing.schedule_timestamp);
                             s.delete(&TaskState::Pending(existing).into())?;
                             s.store(&TaskState::Pending(new_task.clone()).into(), value.clone())
                         }
@@ -514,7 +523,7 @@ mod tests {
                     let value = Value::from("value");
 
                     queue
-                        .schedule_task(segment.into(), value, None, Existing::Reschedule)
+                        .schedule_task(segment.into(), value, None, Existing::RescheduleToNewTime)
                         .unwrap();
                     println!("> Scheduled job {}", &name);
                 }
@@ -572,7 +581,7 @@ mod tests {
         let value = Value::from("value");
 
         queue
-            .schedule_task(segment.into(), value, None, Existing::Reschedule)
+            .schedule_task(segment.into(), value, None, Existing::RescheduleToNewTime)
             .unwrap();
 
         assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
@@ -704,7 +713,7 @@ mod tests {
                     name.clone(),
                     value_2.clone(),
                     Some(in_a_while),
-                    Existing::Reschedule,
+                    Existing::RescheduleToNewTime,
                 )
                 .unwrap();
 
@@ -715,7 +724,12 @@ mod tests {
 
             // reschedule that task to now
             queue
-                .schedule_task(name.clone(), value_2.clone(), None, Existing::Reschedule)
+                .schedule_task(
+                    name.clone(),
+                    value_2.clone(),
+                    None,
+                    Existing::RescheduleToNewTime,
+                )
                 .unwrap();
 
             // and when we get it its value should match the original task
