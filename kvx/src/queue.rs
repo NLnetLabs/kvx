@@ -41,10 +41,10 @@ impl<'a> TaskKey<'a> {
     }
 }
 
-impl TryFrom<Key> for TaskKey<'_> {
+impl TryFrom<&Key> for TaskKey<'_> {
     type Error = Error;
 
-    fn try_from(key: Key) -> Result<Self, Self::Error> {
+    fn try_from(key: &Key) -> Result<Self, Self::Error> {
         let (ts, name) = key
             .name()
             .as_str()
@@ -191,6 +191,9 @@ pub trait Queue {
     /// Marks a running task as finished. Fails if the task is not running.
     fn finish_running_task(&self, running: &Key) -> Result<()>;
 
+    /// Reschedules a running task as pending. Fails if the task is not running.
+    fn reschedule_running_task(&self, running: &Key, timestamp: Option<u64>) -> Result<()>;
+
     /// Claims the next scheduled pending task, if any.
     fn claim_scheduled_pending_task(&self) -> Result<Option<RunningTask>>;
 
@@ -235,7 +238,7 @@ impl Queue for KeyValueStore {
                     if let Some(running) = s
                         .list_keys(&Scope::from_segment(RunningTask::SEGMENT))?
                         .into_iter()
-                        .filter_map(|k| TaskKey::try_from(k).ok())
+                        .filter_map(|k| TaskKey::try_from(&k).ok())
                         .find(|running| running.name.as_ref() == &new_task.name)
                         .map(|tk| tk.running_key())
                     {
@@ -248,7 +251,7 @@ impl Queue for KeyValueStore {
                 if let Some(existing) = s
                     .list_keys(&Scope::from_segment(PendingTask::SEGMENT))?
                     .into_iter()
-                    .filter_map(|k| TaskKey::try_from(k).ok())
+                    .filter_map(|k| TaskKey::try_from(&k).ok())
                     .find(|p| p.name.as_ref() == &new_task.name)
                 {
                     let pending_key = existing.pending_key();
@@ -300,6 +303,20 @@ impl Queue for KeyValueStore {
         })
     }
 
+    fn reschedule_running_task(&self, running: &Key, timestamp: Option<u64>) -> Result<()> {
+        // The scopes for running and finished differ, so we need a global lock
+        let lock_scope = Scope::global();
+
+        let pending_key = {
+            let mut task_key = TaskKey::try_from(running)?;
+            task_key.timestamp = timestamp.unwrap_or_else(|| now());
+
+            task_key.pending_key()
+        };
+
+        self.execute(&lock_scope, |kv| kv.move_value(running, &pending_key))
+    }
+
     fn claim_scheduled_pending_task(&self) -> Result<Option<RunningTask>> {
         self.execute(&Scope::global(), |kv| {
             let now = now();
@@ -307,7 +324,7 @@ impl Queue for KeyValueStore {
             if let Some(pending) = kv
                 .list_keys(&Scope::from_segment(PendingTask::SEGMENT))?
                 .into_iter()
-                .filter_map(|k| TaskKey::try_from(k).ok())
+                .filter_map(|k| TaskKey::try_from(&k).ok())
                 .filter(|tk| tk.timestamp <= now)
                 .min_by_key(|tk| tk.timestamp)
             {
@@ -345,7 +362,7 @@ impl Queue for KeyValueStore {
                 s.list_keys(&Scope::from_segment(RunningTask::SEGMENT))?
                     .into_iter()
                     .filter_map(|k| {
-                        let task = TaskKey::try_from(k).ok()?;
+                        let task = TaskKey::try_from(&k).ok()?;
                         if task.timestamp <= reschedule_timeout {
                             Some(task)
                         } else {
@@ -374,7 +391,7 @@ impl Queue for KeyValueStore {
             kv.list_keys(&Scope::from_segment(PendingTask::SEGMENT))
                 .map(|keys| {
                     keys.into_iter()
-                        .filter_map(|k| TaskKey::try_from(k).ok())
+                        .filter_map(|k| TaskKey::try_from(&k).ok())
                         .find(|p| p.name.as_ref() == &name)
                         .map(|p| p.timestamp)
                 })
