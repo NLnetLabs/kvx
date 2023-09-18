@@ -189,7 +189,7 @@ pub trait Queue {
     fn pending_task_scheduled(&self, name: SegmentBuf) -> Result<Option<u64>>;
 
     /// Marks a running task as finished. Fails if the task is not running.
-    fn finish_running_task(&self, running: RunningTask) -> Result<()>;
+    fn finish_running_task(&self, running: &Key) -> Result<()>;
 
     /// Claims the next scheduled pending task, if any.
     fn claim_scheduled_pending_task(&self) -> Result<Option<RunningTask>>;
@@ -284,19 +284,17 @@ impl Queue for KeyValueStore {
         )
     }
 
-    fn finish_running_task(&self, running: RunningTask) -> Result<()> {
-        let running_key = Key::from(&running);
-
+    fn finish_running_task(&self, running_key: &Key) -> Result<()> {
         // The scopes for running and finished differ, so we need a global lock
         let lock_scope = Scope::global();
 
         self.execute(&lock_scope, |kv| {
-            if kv.has(&running_key)? {
-                kv.delete(&running_key)
+            if kv.has(running_key)? {
+                kv.delete(running_key)
             } else {
                 Err(Error::Other(format!(
                     "Cannot finish task {}. It is not running.",
-                    &running_key
+                    running_key
                 )))
             }
         })
@@ -389,7 +387,7 @@ mod tests {
     use std::{thread, time::Duration};
 
     use kvx_macros::segment;
-    use kvx_types::SegmentBuf;
+    use kvx_types::{Key, SegmentBuf};
     use serde_json::Value;
     use url::Url;
 
@@ -444,7 +442,9 @@ mod tests {
 
                     while queue.pending_tasks_remaining().unwrap() > 0 {
                         if let Some(running_task) = queue.claim_scheduled_pending_task().unwrap() {
-                            queue.finish_running_task(running_task).unwrap();
+                            queue
+                                .finish_running_task(&Key::from(&running_task))
+                                .unwrap();
                         }
 
                         std::thread::sleep(std::time::Duration::from_millis(5));
@@ -551,7 +551,9 @@ mod tests {
         // Get and finish the pending task, but do not reschedule it
         let running_task = queue.claim_scheduled_pending_task().unwrap().unwrap();
         assert_eq!(queue.pending_tasks_remaining().unwrap(), 0);
-        queue.finish_running_task(running_task).unwrap();
+        queue
+            .finish_running_task(&Key::from(&running_task))
+            .unwrap();
 
         // There should not be a new pending task
         assert_eq!(queue.pending_tasks_remaining().unwrap(), 0);
