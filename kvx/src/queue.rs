@@ -329,7 +329,6 @@ impl Queue for KeyValueStore {
                 .min_by_key(|tk| tk.timestamp)
             {
                 let pending_key = pending.pending_key();
-                let running_key = pending.running_key();
 
                 if let Some(value) = kv.get(&pending_key)? {
                     let running_task = RunningTask {
@@ -337,6 +336,7 @@ impl Queue for KeyValueStore {
                         timestamp: now,
                         value,
                     };
+                    let running_key = Key::from(&running_task);
 
                     kv.move_value(&pending_key, &running_key)?;
 
