@@ -127,35 +127,15 @@ impl Display for RunningTask {
 
 /// Defines scheduling behaviour in case a task by the same name already exists.
 #[derive(Clone, Copy, Debug)]
-pub enum Existing {
-    /// Store new task, replace old task if it exists.
-    KeepNew,
-    /// Store new task, replace old task if it exists, keep the soonest
-    /// scheduled time.
-    KeepNewScheduleSoonest,
-    /// Reschedule existing, keeping the old value and ignoring the new value.
-    ///
-    /// Note: If the new value should be used, then use KeepNew instead.
-    KeepOldWithNewTime,
-    /// Keep existing, discard new.
-    ///
-    /// Note: Can be used to schedule a task only in case it's missing.
-    KeepOld,
-}
+pub enum ScheduleMode {
+    /// Store new task:
+    /// - replace old task if it exists
+    /// - finish old task if it is running
+    FinishOrReplaceExisting,
 
-/// Defines scheduling behaviour in case a task by the same name is running.
-#[derive(Clone, Copy, Debug)]
-pub enum Running {
-    /// Finish the running task if it exists.
-    Finish,
-    /// Keep the running task if it exists.
-    Keep,
-}
-
-impl Running {
-    pub fn must_be_finished(&self) -> bool {
-        matches!(self, Running::Finish)
-    }
+    /// Keep existing pending or running task and in that case do not
+    /// add the new task. Otherwise just add the new task.
+    IfMissing,
 }
 
 pub trait Queue {
@@ -181,8 +161,7 @@ pub trait Queue {
         name: SegmentBuf,
         value: serde_json::Value,
         timestamp: Option<u64>,
-        existing: Existing,
-        running: Running,
+        existing: ScheduleMode,
     ) -> Result<()>;
 
     /// Returns the scheduled time for the named task, if any.
@@ -219,10 +198,9 @@ impl Queue for KeyValueStore {
         name: SegmentBuf,
         value: serde_json::Value,
         timestamp: Option<u64>,
-        mode_existing: Existing,
-        running: Running,
+        mode: ScheduleMode,
     ) -> Result<()> {
-        let mut new_task = PendingTask {
+        let new_task = PendingTask {
             name,
             timestamp: timestamp.unwrap_or(now()),
             value,
@@ -232,56 +210,39 @@ impl Queue for KeyValueStore {
         self.transaction(
             &Scope::global(),
             &mut move |s: &dyn KeyValueStoreBackend| {
-                // Finish the matching running task (if any) if requested
-                // to do so.
-                if running.must_be_finished() {
-                    if let Some(running) = s
-                        .list_keys(&Scope::from_segment(RunningTask::SEGMENT))?
-                        .into_iter()
-                        .filter_map(|k| TaskKey::try_from(&k).ok())
-                        .find(|running| running.name.as_ref() == &new_task.name)
-                        .map(|tk| tk.running_key())
-                    {
-                        s.delete(&running)?;
-                    }
-                }
+                let running_key_opt = s
+                    .list_keys(&Scope::from_segment(RunningTask::SEGMENT))?
+                    .into_iter()
+                    .filter_map(|k| TaskKey::try_from(&k).ok())
+                    .find(|running| running.name.as_ref() == &new_task.name)
+                    .map(|tk| tk.running_key());
 
-                // If there is an existing pending task for this,
-                // then we need to figure out what to do with it.
-                if let Some(existing) = s
+                let pending_key_opt = s
                     .list_keys(&Scope::from_segment(PendingTask::SEGMENT))?
                     .into_iter()
                     .filter_map(|k| TaskKey::try_from(&k).ok())
                     .find(|p| p.name.as_ref() == &new_task.name)
-                {
-                    let pending_key = existing.pending_key();
+                    .map(|tk| tk.pending_key());
 
-                    match mode_existing {
-                        Existing::KeepOld => {
-                            // nothing to do
+                match mode {
+                    ScheduleMode::IfMissing => {
+                        if pending_key_opt.is_some() || running_key_opt.is_some() {
+                            // nothing to do, there is something
                             Ok(())
-                        }
-                        Existing::KeepOldWithNewTime => {
-                            // reschedule existing task
-                            // note that the due time is part of the key, not the content
-                            s.move_value(&pending_key, &new_task_key)
-                        }
-                        Existing::KeepNew => {
-                            s.delete(&pending_key)?;
-                            s.store(&new_task_key, new_task.value.clone())
-                        }
-                        Existing::KeepNewScheduleSoonest => {
-                            new_task.timestamp = new_task.timestamp.min(existing.timestamp);
-
-                            let new_task_key = Key::from(&new_task);
-                            s.delete(&pending_key)?;
+                        } else {
+                            // no pending or running task exists, just add the new task
                             s.store(&new_task_key, new_task.value.clone())
                         }
                     }
-                } else {
-                    // There was no matching pending task, just store
-                    // this new task.
-                    s.store(&new_task_key, new_task.value.clone())
+                    ScheduleMode::FinishOrReplaceExisting => {
+                        if let Some(running) = running_key_opt {
+                            s.delete(&running)?;
+                        }
+                        if let Some(pending) = pending_key_opt {
+                            s.delete(&pending)?;
+                        }
+                        s.store(&new_task_key, new_task.value.clone())
+                    }
                 }
             },
         )
@@ -410,7 +371,7 @@ mod tests {
 
     use super::{PendingTask, Queue};
     use crate::{
-        queue::{now, Existing, Running},
+        queue::{now, ScheduleMode},
         KeyValueStore, Namespace, ReadStore, Scope, Segment,
     };
 
@@ -439,8 +400,7 @@ mod tests {
                             segment.into(),
                             value,
                             None,
-                            Existing::KeepOldWithNewTime,
-                            Running::Finish,
+                            ScheduleMode::FinishOrReplaceExisting,
                         )
                         .unwrap();
                     println!("> Scheduled job {}", &name);
@@ -491,8 +451,7 @@ mod tests {
                 segment.into(),
                 value,
                 None,
-                Existing::KeepOldWithNewTime,
-                Running::Finish,
+                ScheduleMode::FinishOrReplaceExisting,
             )
             .unwrap();
 
@@ -537,8 +496,7 @@ mod tests {
                 segment.into(),
                 value,
                 None,
-                Existing::KeepNew,
-                Running::Finish,
+                ScheduleMode::FinishOrReplaceExisting,
             )
             .unwrap();
         assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
@@ -555,8 +513,7 @@ mod tests {
                 running_task.name,
                 running_task.value,
                 Some(now()),
-                Existing::KeepNew,
-                Running::Finish,
+                ScheduleMode::FinishOrReplaceExisting,
             )
             .unwrap();
 
@@ -594,8 +551,7 @@ mod tests {
                     name.clone(),
                     value_1.clone(),
                     None,
-                    Existing::KeepNew,
-                    Running::Finish,
+                    ScheduleMode::FinishOrReplaceExisting,
                 )
                 .unwrap();
             assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
@@ -606,8 +562,7 @@ mod tests {
                     name.clone(),
                     value_2.clone(),
                     None,
-                    Existing::KeepNew,
-                    Running::Finish,
+                    ScheduleMode::FinishOrReplaceExisting,
                 )
                 .unwrap();
             assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
@@ -615,6 +570,9 @@ mod tests {
             // We should have one task and the value should match the new task.
             let task = queue.claim_scheduled_pending_task().unwrap().unwrap();
             assert_eq!(task.value, value_2);
+
+            assert_eq!(queue.running_tasks().unwrap(), 1);
+            queue.finish_running_task(&Key::from(&task)).unwrap();
         }
 
         // Schedule a task, and then schedule again keeping the old
@@ -624,8 +582,7 @@ mod tests {
                     name.clone(),
                     value_1.clone(),
                     None,
-                    Existing::KeepNew,
-                    Running::Finish,
+                    ScheduleMode::FinishOrReplaceExisting,
                 )
                 .unwrap();
             queue
@@ -633,8 +590,7 @@ mod tests {
                     name.clone(),
                     value_2.clone(),
                     Some(in_a_while),
-                    Existing::KeepOld,
-                    Running::Finish,
+                    ScheduleMode::IfMissing,
                 )
                 .unwrap();
 
@@ -652,8 +608,7 @@ mod tests {
                     name.clone(),
                     value_1.clone(),
                     None,
-                    Existing::KeepNew,
-                    Running::Finish,
+                    ScheduleMode::FinishOrReplaceExisting,
                 )
                 .unwrap();
 
@@ -666,8 +621,7 @@ mod tests {
                     name.clone(),
                     value_2.clone(),
                     Some(in_a_while),
-                    Existing::KeepOldWithNewTime,
-                    Running::Finish,
+                    ScheduleMode::FinishOrReplaceExisting,
                 )
                 .unwrap();
 
@@ -675,48 +629,45 @@ mod tests {
             // get nothing because our one and only task is not
             // due yet.
             assert!(queue.claim_scheduled_pending_task().unwrap().is_none());
-
-            // reschedule that task to now
-            queue
-                .schedule_task(
-                    name.clone(),
-                    value_2.clone(),
-                    None,
-                    Existing::KeepOldWithNewTime,
-                    Running::Finish,
-                )
-                .unwrap();
-
-            // and when we get it its value should match the original task
-            // that was rescheduled two times.
-            let task = queue.claim_scheduled_pending_task().unwrap().unwrap();
-            assert_eq!(task.value, value_1);
         }
 
-        // Schedule a task, then schedule a new task keeping the same time and name.
+        // Schedule a task, claim it, and then finish and schedule a new task
         {
+            // schedule a task
             queue
                 .schedule_task(
                     name.clone(),
                     value_1.clone(),
                     None,
-                    Existing::KeepNew,
-                    Running::Finish,
+                    ScheduleMode::FinishOrReplaceExisting,
                 )
                 .unwrap();
+
+            // there should be 1 pending task, and 0 running
+            assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
+            assert_eq!(queue.running_tasks().unwrap(), 0);
+
+            // claim the task
+            let task = queue.claim_scheduled_pending_task().unwrap().unwrap();
+            assert_eq!(task.value, value_1);
+            assert_eq!(queue.pending_tasks_remaining().unwrap(), 0);
+            assert_eq!(queue.running_tasks().unwrap(), 1);
+
+            // schedule a new task
             queue
                 .schedule_task(
                     name.clone(),
                     value_2.clone(),
                     None,
-                    Existing::KeepNew,
-                    Running::Finish,
+                    ScheduleMode::FinishOrReplaceExisting,
                 )
                 .unwrap();
 
-            // We should see only task - since name and time together are the unique key
-            // The value should match the new task.
+            // the running task should now be finished, and there should be 1 new pending task
+            assert_eq!(queue.running_tasks().unwrap(), 0);
             assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
+
+            // claim the task, it should match the new task
             let task = queue.claim_scheduled_pending_task().unwrap().unwrap();
             assert_eq!(task.value, value_2);
         }
