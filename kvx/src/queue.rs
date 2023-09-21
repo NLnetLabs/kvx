@@ -133,6 +133,12 @@ pub enum ScheduleMode {
     /// - finish old task if it is running
     FinishOrReplaceExisting,
 
+    /// Store new task:
+    /// - replace old task if it exists
+    /// - use the soonest scheduled time if old task exists
+    /// - finish old task if it is running
+    FinishOrReplaceExistingSoonest,
+
     /// Keep existing pending or running task and in that case do not
     /// add the new task. Otherwise just add the new task.
     IfMissing,
@@ -213,7 +219,7 @@ impl Queue for KeyValueStore {
         timestamp: Option<u64>,
         mode: ScheduleMode,
     ) -> Result<()> {
-        let new_task = PendingTask {
+        let mut new_task = PendingTask {
             name,
             timestamp: timestamp.unwrap_or(now()),
             value,
@@ -254,6 +260,21 @@ impl Queue for KeyValueStore {
                         if let Some(pending) = pending_key_opt {
                             s.delete(&pending)?;
                         }
+                        s.store(&new_task_key, new_task.value.clone())
+                    }
+                    ScheduleMode::FinishOrReplaceExistingSoonest => {
+                        if let Some(running) = running_key_opt {
+                            s.delete(&running)?;
+                        }
+
+                        if let Some(pending) = pending_key_opt {
+                            if let Ok(tk) = TaskKey::try_from(&pending) {
+                                new_task.timestamp = new_task.timestamp.min(tk.timestamp);
+                            }
+                            s.delete(&pending)?;
+                        }
+
+                        let new_task_key = Key::from(&new_task);
                         s.store(&new_task_key, new_task.value.clone())
                     }
                 }
@@ -623,19 +644,45 @@ mod tests {
             // we expect one pending task
             assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
 
-            // reschedule that task to 3 minutes from now
+            // reschedule that task to 3 minutes from now, keeping the
+            // soonest value
             queue
                 .schedule_task(
                     name.clone(),
                     value_2.clone(),
                     Some(in_a_while),
+                    ScheduleMode::FinishOrReplaceExistingSoonest,
+                )
+                .unwrap();
+
+            // we still expect one pending task with the earlier
+            // time and the new value.
+            assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
+            let task = queue.claim_scheduled_pending_task().unwrap().unwrap();
+            assert_eq!(task.value, value_2);
+
+            // But if we now schedule a task and then reschedule
+            // it to 3 minutes from now NOT using the soonest. Then
+            // we should see 1 pending task that we cannot claim
+            // because it is not due.
+            queue
+                .schedule_task(
+                    name.clone(),
+                    value_1.clone(),
+                    None,
+                    ScheduleMode::FinishOrReplaceExisting,
+                )
+                .unwrap();
+            queue
+                .schedule_task(
+                    name.clone(),
+                    value_1.clone(),
+                    Some(in_a_while),
                     ScheduleMode::FinishOrReplaceExisting,
                 )
                 .unwrap();
 
-            // when we try to claim a scheduled task, we should
-            // get nothing because our one and only task is not
-            // due yet.
+            assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
             assert!(queue.claim_scheduled_pending_task().unwrap().is_none());
         }
 
