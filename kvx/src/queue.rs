@@ -141,6 +141,10 @@ pub enum ScheduleMode {
 pub trait Queue {
     const RESCHEDULE_AFTER: Duration = Duration::from_secs(15 * 60);
 
+    fn lock_scope() -> Scope {
+        Scope::global()
+    }
+
     fn pending_scope() -> Scope {
         Scope::from_segment(PendingTask::SEGMENT)
     }
@@ -153,7 +157,10 @@ pub trait Queue {
     fn pending_tasks_remaining(&self) -> Result<usize>;
 
     /// Returns the number of running tasks
-    fn running_tasks(&self) -> Result<usize>;
+    fn running_tasks_remaining(&self) -> Result<usize>;
+
+    /// Returns the currently running tasks
+    fn running_tasks_keys(&self) -> Result<Vec<Key>>;
 
     /// Schedule a task.
     fn schedule_task(
@@ -182,14 +189,20 @@ pub trait Queue {
 
 impl Queue for KeyValueStore {
     fn pending_tasks_remaining(&self) -> Result<usize> {
-        self.execute(&Self::pending_scope(), |kv| {
+        self.execute(&Self::lock_scope(), |kv| {
             kv.list_keys(&Self::pending_scope()).map(|list| list.len())
         })
     }
 
-    fn running_tasks(&self) -> Result<usize> {
-        self.execute(&Self::pending_scope(), |kv| {
+    fn running_tasks_remaining(&self) -> Result<usize> {
+        self.execute(&Self::lock_scope(), |kv| {
             kv.list_keys(&Self::running_scope()).map(|list| list.len())
+        })
+    }
+
+    fn running_tasks_keys(&self) -> Result<Vec<Key>> {
+        self.execute(&Self::lock_scope(), |kv| {
+            kv.list_keys(&Self::running_scope())
         })
     }
 
@@ -208,17 +221,17 @@ impl Queue for KeyValueStore {
         let new_task_key = Key::from(&new_task);
 
         self.transaction(
-            &Scope::global(),
+            &Self::lock_scope(),
             &mut move |s: &dyn KeyValueStoreBackend| {
                 let running_key_opt = s
-                    .list_keys(&Scope::from_segment(RunningTask::SEGMENT))?
+                    .list_keys(&Self::running_scope())?
                     .into_iter()
                     .filter_map(|k| TaskKey::try_from(&k).ok())
                     .find(|running| running.name.as_ref() == &new_task.name)
                     .map(|tk| tk.running_key());
 
                 let pending_key_opt = s
-                    .list_keys(&Scope::from_segment(PendingTask::SEGMENT))?
+                    .list_keys(&Self::pending_scope())?
                     .into_iter()
                     .filter_map(|k| TaskKey::try_from(&k).ok())
                     .find(|p| p.name.as_ref() == &new_task.name)
@@ -249,10 +262,7 @@ impl Queue for KeyValueStore {
     }
 
     fn finish_running_task(&self, running_key: &Key) -> Result<()> {
-        // The scopes for running and finished differ, so we need a global lock
-        let lock_scope = Scope::global();
-
-        self.execute(&lock_scope, |kv| {
+        self.execute(&Self::lock_scope(), |kv| {
             if kv.has(running_key)? {
                 kv.delete(running_key)
             } else {
@@ -265,9 +275,6 @@ impl Queue for KeyValueStore {
     }
 
     fn reschedule_running_task(&self, running: &Key, timestamp: Option<u64>) -> Result<()> {
-        // The scopes for running and finished differ, so we need a global lock
-        let lock_scope = Scope::global();
-
         let pending_key = {
             let mut task_key = TaskKey::try_from(running)?;
             task_key.timestamp = timestamp.unwrap_or_else(|| now());
@@ -275,15 +282,17 @@ impl Queue for KeyValueStore {
             task_key.pending_key()
         };
 
-        self.execute(&lock_scope, |kv| kv.move_value(running, &pending_key))
+        self.execute(&Self::lock_scope(), |kv| {
+            kv.move_value(running, &pending_key)
+        })
     }
 
     fn claim_scheduled_pending_task(&self) -> Result<Option<RunningTask>> {
-        self.execute(&Scope::global(), |kv| {
+        self.execute(&Self::lock_scope(), |kv| {
             let now = now();
 
             if let Some(pending) = kv
-                .list_keys(&Scope::from_segment(PendingTask::SEGMENT))?
+                .list_keys(&Self::pending_scope())?
                 .into_iter()
                 .filter_map(|k| TaskKey::try_from(&k).ok())
                 .filter(|tk| tk.timestamp <= now)
@@ -318,9 +327,9 @@ impl Queue for KeyValueStore {
         let reschedule_timeout = now - reschedule_after.as_secs();
 
         self.transaction(
-            &Scope::global(),
+            &Self::lock_scope(),
             &mut move |s: &dyn KeyValueStoreBackend| {
-                s.list_keys(&Scope::from_segment(RunningTask::SEGMENT))?
+                s.list_keys(&Self::running_scope())?
                     .into_iter()
                     .filter_map(|k| {
                         let task = TaskKey::try_from(&k).ok()?;
@@ -348,14 +357,13 @@ impl Queue for KeyValueStore {
     }
 
     fn pending_task_scheduled(&self, name: SegmentBuf) -> Result<Option<u64>> {
-        self.execute(&Self::pending_scope(), |kv| {
-            kv.list_keys(&Scope::from_segment(PendingTask::SEGMENT))
-                .map(|keys| {
-                    keys.into_iter()
-                        .filter_map(|k| TaskKey::try_from(&k).ok())
-                        .find(|p| p.name.as_ref() == &name)
-                        .map(|p| p.timestamp)
-                })
+        self.execute(&Self::lock_scope(), |kv| {
+            kv.list_keys(&Self::pending_scope()).map(|keys| {
+                keys.into_iter()
+                    .filter_map(|k| TaskKey::try_from(&k).ok())
+                    .find(|p| p.name.as_ref() == &name)
+                    .map(|p| p.timestamp)
+            })
         })
     }
 }
@@ -433,7 +441,7 @@ mod tests {
         let pending = queue.pending_tasks_remaining().unwrap();
         assert_eq!(pending, 0);
 
-        let running = queue.running_tasks().unwrap();
+        let running = queue.running_tasks_remaining().unwrap();
         assert_eq!(running, 0);
     }
 
@@ -504,7 +512,7 @@ mod tests {
         // Get the task
         let running_task = queue.claim_scheduled_pending_task().unwrap().unwrap();
         assert_eq!(queue.pending_tasks_remaining().unwrap(), 0);
-        assert_eq!(queue.running_tasks().unwrap(), 1);
+        assert_eq!(queue.running_tasks_remaining().unwrap(), 1);
 
         // Finish the task and reschedule
         // queue.finish_running_task(task, Some(rescheduled)).unwrap();
@@ -520,7 +528,7 @@ mod tests {
         // There should now be a new pending task, and the
         // running task should be removed.
         assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
-        assert_eq!(queue.running_tasks().unwrap(), 0);
+        assert_eq!(queue.running_tasks_remaining().unwrap(), 0);
 
         // Get and finish the pending task, but do not reschedule it
         let running_task = queue.claim_scheduled_pending_task().unwrap().unwrap();
@@ -571,7 +579,7 @@ mod tests {
             let task = queue.claim_scheduled_pending_task().unwrap().unwrap();
             assert_eq!(task.value, value_2);
 
-            assert_eq!(queue.running_tasks().unwrap(), 1);
+            assert_eq!(queue.running_tasks_remaining().unwrap(), 1);
             queue.finish_running_task(&Key::from(&task)).unwrap();
         }
 
@@ -645,13 +653,13 @@ mod tests {
 
             // there should be 1 pending task, and 0 running
             assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
-            assert_eq!(queue.running_tasks().unwrap(), 0);
+            assert_eq!(queue.running_tasks_remaining().unwrap(), 0);
 
             // claim the task
             let task = queue.claim_scheduled_pending_task().unwrap().unwrap();
             assert_eq!(task.value, value_1);
             assert_eq!(queue.pending_tasks_remaining().unwrap(), 0);
-            assert_eq!(queue.running_tasks().unwrap(), 1);
+            assert_eq!(queue.running_tasks_remaining().unwrap(), 1);
 
             // schedule a new task
             queue
@@ -664,7 +672,7 @@ mod tests {
                 .unwrap();
 
             // the running task should now be finished, and there should be 1 new pending task
-            assert_eq!(queue.running_tasks().unwrap(), 0);
+            assert_eq!(queue.running_tasks_remaining().unwrap(), 0);
             assert_eq!(queue.pending_tasks_remaining().unwrap(), 1);
 
             // claim the task, it should match the new task
