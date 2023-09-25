@@ -298,7 +298,7 @@ impl Queue for KeyValueStore {
     fn reschedule_running_task(&self, running: &Key, timestamp: Option<u64>) -> Result<()> {
         let pending_key = {
             let mut task_key = TaskKey::try_from(running)?;
-            task_key.timestamp = timestamp.unwrap_or_else(|| now());
+            task_key.timestamp = timestamp.unwrap_or_else(now);
 
             task_key.pending_key()
         };
