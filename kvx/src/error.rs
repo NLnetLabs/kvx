@@ -8,6 +8,9 @@ pub enum Error {
     #[error("io error {0}")]
     Io(#[from] io::Error),
 
+    #[error("{0} io error {1}")]
+    IoWithContext(String, io::Error),
+
     #[cfg(feature = "postgres")]
     #[error("postgres error {0}")]
     Postgres(#[from] postgres::Error),
@@ -45,4 +48,11 @@ pub enum Error {
     /// [`Key`]: ../kvx/struct.Key.html
     #[error("unknown key")]
     UnknownKey,
+
+    /// Namespace migration issue
+    #[error("namespace migration issue: {0}")]
+    NamespaceMigration(String),
+
+    #[error("{0}")]
+    Other(String),
 }

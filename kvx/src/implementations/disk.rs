@@ -15,28 +15,58 @@ use crate::{
     WriteStore,
 };
 
+pub const LOCK_FILE_NAME: &str = "lockfile.lock";
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Disk {
     root: PathBuf,
+    tmp: PathBuf,
 }
 
 impl Disk {
+    /// This will create a disk based store for the given (base) path and namespace.
+    ///
+    /// Under the hood this uses two directories: path/namespace and path/tmp.
+    /// The latter is used for temporary files for new values for existing keys. Such
+    /// values are written first and then renamed (moved) to avoid issues with partially
+    /// written files because of I/O issues (disk full) or concurrent reads of the key
+    /// as its value is being updated.
+    ///
+    /// Different instances of this disk based storage that use different namespaces,
+    /// but share the same (base) path will all use the same tmp directory. This is
+    /// not an issue as the temporary files will have unique names.
     pub fn new(path: &str, namespace: &str) -> Result<Self> {
         let root = PathBuf::from(path).join(namespace);
-        if !root.try_exists().unwrap_or_default() {
-            fs::create_dir_all(&root)?;
+        let tmp = PathBuf::from(path).join("tmp");
+
+        if !tmp.exists() {
+            fs::create_dir_all(&tmp).map_err(|e| {
+                Error::IoWithContext(
+                    format!("Cannot create directory for tmp files: {}", tmp.display()),
+                    e,
+                )
+            })?;
         }
-        Ok(Disk { root })
+
+        Ok(Disk { root, tmp })
     }
 }
 
 impl Display for Disk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "KeyValueStore::Disk({})", self.root.to_string_lossy())
+        write!(f, "KeyValueStore::Disk({})", self.root.display())
     }
 }
 
 impl ReadStore for Disk {
+    fn is_empty(&self) -> Result<bool> {
+        Ok(self
+            .root
+            .read_dir()
+            .map(|mut d| d.next().is_none())
+            .unwrap_or(true))
+    }
+
     fn has(&self, key: &Key) -> Result<bool> {
         let exists = key.as_path(&self.root).exists();
         Ok(exists)
@@ -84,11 +114,52 @@ impl WriteStore for Disk {
         let path = key.as_path(&self.root);
         let dir = key.scope().as_path(&self.root);
 
+        if key.name().as_str() == LOCK_FILE_NAME {
+            return Err(Error::InvalidKey);
+        }
+
         if !dir.try_exists().unwrap_or_default() {
             fs::create_dir_all(dir)?;
         }
 
-        fs::write(path, format!("{:#}", value).as_bytes())?;
+        if path.exists() {
+            // tempfile ensures that the temporary file is cleaned up in case it
+            // would be left behind because of some issue.
+            let tmp_file = tempfile::NamedTempFile::new_in(&self.tmp).map_err(|e| {
+                Error::IoWithContext(
+                    format!(
+                        "Issue writing tmp file for key: {}. Check permissions and space on disk.",
+                        key
+                    ),
+                    e,
+                )
+            })?;
+
+            fs::write(&tmp_file, format!("{:#}", value).as_bytes()).map_err(|e| {
+                Error::IoWithContext(
+                    format!(
+                        "Issue writing tmp file: {} for key: {}. Check permissions and space on disk.",
+                        tmp_file.as_ref().display(), key
+                    ),
+                    e,
+                )
+            })?;
+
+            // persist ensures that the temporary file is not deleted
+            // when the instance is dropped.
+            tmp_file.persist(&path).map_err(|e| {
+                Error::IoWithContext(
+                    format!(
+                        "Cannot rename temp file {} to {}.",
+                        e.file.path().display(),
+                        path.display()
+                    ),
+                    e.error,
+                )
+            })?;
+        } else {
+            fs::write(path, format!("{:#}", value).as_bytes())?;
+        }
 
         Ok(())
     }
@@ -145,6 +216,47 @@ impl WriteStore for Disk {
             let _ = fs::remove_dir_all(&self.root);
         }
 
+        Ok(())
+    }
+
+    fn migrate_namespace(&mut self, namespace: kvx_types::NamespaceBuf) -> Result<()> {
+        let root_parent = self.root.parent().ok_or(Error::NamespaceMigration(format!(
+            "cannot get parent dir for: {}",
+            self.root.display()
+        )))?;
+
+        let new_root = root_parent.join(namespace.as_str());
+
+        if new_root.exists() {
+            // If the target directory already exists, then it must be empty.
+            if new_root
+                .read_dir()
+                .map_err(|e| {
+                    Error::NamespaceMigration(format!(
+                        "cannot read directory '{}'. Error: {}",
+                        new_root.display(),
+                        e,
+                    ))
+                })?
+                .next()
+                .is_some()
+            {
+                return Err(Error::NamespaceMigration(format!(
+                    "target dir {} already exists and is not empty",
+                    new_root.display(),
+                )));
+            }
+        }
+
+        fs::rename(&self.root, &new_root).map_err(|e| {
+            Error::NamespaceMigration(format!(
+                "cannot rename dir from {} to {}. Error: {}",
+                self.root.display(),
+                new_root.display(),
+                e
+            ))
+        })?;
+        self.root = new_root;
         Ok(())
     }
 }
@@ -244,7 +356,7 @@ impl FileLock {
             fs::create_dir_all(path)?;
         }
 
-        let lock_path = path.join("lockfile.lock");
+        let lock_path = path.join(LOCK_FILE_NAME);
 
         let file = loop {
             let file = OpenOptions::new()
@@ -297,7 +409,7 @@ fn list_files_recursive(dir: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
         let path = result?.path();
         if path.is_dir() {
             files.extend(list_files_recursive(path)?);
-        } else {
+        } else if !path.ends_with(LOCK_FILE_NAME) {
             files.push(path);
         }
     }

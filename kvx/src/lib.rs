@@ -2,10 +2,8 @@ use std::fmt::{Debug, Display};
 
 use implementations::{disk::Disk, memory::Memory};
 #[cfg(feature = "macros")]
-pub use kvx_macros::segment;
+pub use kvx_macros::{namespace, segment};
 pub use kvx_types::{Key, Namespace, NamespaceBuf, Scope, Segment, SegmentBuf};
-#[cfg(feature = "queue")]
-pub use queue::Queue;
 use serde_json::Value;
 use url::Url;
 
@@ -14,12 +12,13 @@ pub use crate::error::Error;
 mod error;
 mod implementations;
 #[cfg(feature = "queue")]
-mod queue;
+pub mod queue;
 
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Read operations of a store
 pub trait ReadStore {
+    fn is_empty(&self) -> Result<bool>;
     fn has(&self, key: &Key) -> Result<bool>;
     fn has_scope(&self, scope: &Scope) -> Result<bool>;
     fn get(&self, key: &Key) -> Result<Option<Value>>;
@@ -27,15 +26,28 @@ pub trait ReadStore {
     fn list_scopes(&self) -> Result<Vec<Scope>>;
 }
 
-/// Read operations of a store
+/// Write operations of a store
 pub trait WriteStore {
+    /// Store a value.
     fn store(&self, key: &Key, value: Value) -> Result<()>;
+
+    /// Move a value to a new key. Fails if the original value does not exist.
     fn move_value(&self, from: &Key, to: &Key) -> Result<()>;
+
+    /// Move all values from one scope to another.
     fn move_scope(&self, from: &Scope, to: &Scope) -> Result<()>;
 
+    /// Delete a value for a key.
     fn delete(&self, key: &Key) -> Result<()>;
+
+    /// Delete all values for a scope.
     fn delete_scope(&self, scope: &Scope) -> Result<()>;
+
+    /// Delete all values within the namespace of this store.
     fn clear(&self) -> Result<()>;
+
+    /// Migrate the namespace (and all key value pairs) for this store.
+    fn migrate_namespace(&mut self, to: NamespaceBuf) -> Result<()>;
 }
 
 pub(crate) type TransactionCallback<'s> =
@@ -84,15 +96,7 @@ impl KeyValueStore {
 
                 Box::new(Disk::new(&path, namespace.as_str())?)
             }
-            "memory" => Box::new(Memory::new(
-                format!(
-                    "{} {}",
-                    storage_uri.host_str().unwrap_or_default(),
-                    namespace
-                )
-                .parse()
-                .unwrap_or(namespace),
-            )),
+            "memory" => Box::new(Memory::new(storage_uri.host_str(), namespace)?),
             #[cfg(feature = "postgres")]
             "postgres" => Box::new(crate::implementations::postgres::Postgres::new(
                 storage_uri,
@@ -130,6 +134,10 @@ impl KeyValueStoreBackend for KeyValueStore {
 }
 
 impl ReadStore for KeyValueStore {
+    fn is_empty(&self) -> Result<bool> {
+        self.inner.is_empty()
+    }
+
     fn has(&self, key: &Key) -> Result<bool> {
         self.inner.has(key)
     }
@@ -174,5 +182,9 @@ impl WriteStore for KeyValueStore {
 
     fn clear(&self) -> Result<()> {
         self.inner.clear()
+    }
+
+    fn migrate_namespace(&mut self, to: NamespaceBuf) -> Result<()> {
+        self.inner.migrate_namespace(to)
     }
 }
