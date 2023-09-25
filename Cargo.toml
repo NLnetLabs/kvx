@@ -2,7 +2,7 @@
 members = ["kvx", "kvx-macros", "kvx-types"]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 license = "BSD-3-Clause"
 repository = "https://github.com/nlnetlabs/kvx"
