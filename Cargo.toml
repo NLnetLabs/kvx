@@ -1,5 +1,6 @@
 [workspace]
 members = ["kvx", "kvx-macros", "kvx-types"]
+resolver = "2"
 
 [workspace.package]
 version = "0.8.0"
