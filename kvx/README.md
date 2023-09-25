@@ -11,7 +11,7 @@ For now an in-memory, filesystem and Postgres implementation are provided by def
 Create an instance of a KVX store and specify the storage backend using an URL. For example:
 
 ```rust
-let namespace = Segment::parse("some-namespace")?;
+let namespace = Namespace::parse("some-namespace")?;
 
 // in memory backend
 let store = KeyValueStore::new(&Url::parse("memory://")?, namespace)?;
@@ -30,6 +30,7 @@ Note that keys, scopes and namespaces have the `Segment` type, this is necessary
 The store supports basic key-value operations:
 
 ```rust
+fn is_empty(&self) -> Result<bool>;
 fn has(&self, key: &Key) -> Result<bool>;
 fn has_scope(&self, scope: &Scope) -> Result<bool>;
 fn get(&self, key: &Key) -> Result<Option<Value>>;
@@ -39,10 +40,13 @@ fn list_scopes(&self) -> Result<Vec<Scope>>;
 fn store(&self, key: &Key, value: Value) -> Result<()>;
 fn move_value(&self, from: &Key, to: &Key) -> Result<()>;
 fn move_scope(&self, from: &Scope, to: &Scope) -> Result<()>;
-
 fn delete(&self, key: &Key) -> Result<()>;
 fn delete_scope(&self, scope: &Scope) -> Result<()>;
+
 fn clear(&self) -> Result<()>;
+
+/// Migrate the namespace (and all key value pairs) for this store.
+fn migrate_namespace(&mut self, to: NamespaceBuf) -> Result<()>;
 ```
 
 Transactions can be used to atomically perform a sequence of operations:
@@ -56,54 +60,83 @@ store.transaction(scope, &mut move |t: &dyn KeyValueStoreBackend| {
 })?;
 ```
 
+If a value (or a Result for that matter) needs to be returned from within
+a transaction, then the execute function can be used. The value can be
+a result type in case non kvx errors need to be returned.
+
+Example code where self has a KeyValueStore and wants to return all
+keys in the global scope, but also verify that some reserved key is
+not used.
+
+The main takeaway being that the closure that is passed in to execute
+can return something like `Result<Result<T, E>, kvx::Error>`.
+
+```rust
+pub fn list_verified_keys(&self) -> Result<Vec<Keys>, MyError> {
+        self.store.execute(&Scope::global(), |kv| {
+            let keys = kv.list_keys(&Scope::global())?;
+            let forbidden_key = Key::new_global(segment!("reserved"));
+            if keys.contains(&forbidden_key) {
+                Ok(Err(MyError::ForbiddenKey))
+            } else {
+                Ok(Ok(keys))
+            }
+        })
+        .map_err(MyError::from)
+    }
+```
+
 A queue mechanism enables creating and handling tasks. A job can be scheduled at a certain time.
 
+Example:
 ```rust
-/// create a new job, optionally at a certain time
-fn schedule_job(
-    &self,
-    name: SegmentBuf,
-    value: serde_json::Value,
-    timestamp: Option<u64>,
-) -> Result<()>;
-/// check the number of unclaimed jobs
-fn jobs_remaining(&self) -> Result<usize>;
-/// check a certain job exists, return the scheduled timestamp
-fn exists(&self, name: SegmentBuf) -> Option<u64>;
-/// claim an available job (this method checks the scheduled timestamp of jobs)
-fn claim_job(&self) -> Option<Task>;
-/// mark job as finished (done by the runner)
-fn finished_job(&self, task: Task) -> Result<()>;
-/// cleanup finished jobs and reschedule timed-out jobs
-/// (by default job are rescheduled after 15 minutes of inactivity, finished jobs are removed after 7 days by default)
-fn cleanup(
-    &self,
-    reschedule_after: Option<&Duration>,
-    remove_after: Option<&Duration>,
-) -> Result<()>;
+use kvx::queue;
+
+fn queue(store: &KeyValueStore) -> Result<(), kvx::Error> {
+    let name = "job";
+    let segment = Segment::parse(name).unwrap();
+    let value = Value::from("value");
+
+    // schedule a task
+    queue.schedule_task(
+        segment.into(),
+        value,
+        None,
+        ScheduleMode::FinishOrReplaceExisting,
+    )?;
+
+    // claim a pending task
+    let task_opt = queue.claim_scheduled_pending_task()?;
+
+    if let Some(task) = task_opt {
+        // do stuff...
+
+        // then finish the task
+        queue.finish_running_task(&Key::from(&task))?;
+    }
+
+    Ok(())
+}
+
+
 ```
 
-For example:
 
-```rust
-use kvx::Queue;
-
-store.schedule_job(key, value, None).unwrap();
-
-assert_eq!(queue.jobs_remaining().unwrap(), 1);
-
-let job = queue.claim_job();
-
-assert!(job.is_some());
-assert_eq!(queue.jobs_remaining().unwrap(), 0);
-```
 
 ## Changelog
 
 ### Version 0.8.0
 
+This release introduces a number of breaking changes. In particular,
+we now use a dedicated type for `Namespace` and no longer prepend
+a namespace `Segment` to keys. And the `Queue` implementation has
+been overhauled.
+
 - Add KeyValueStore::execute #38
 - Use pretty printed JSON for values on disk #39
+- Use Namespace type and support Namespace migrations #45
+- Write tempfile and rename when using disk storage #46, #51
+- Use a transactional queue #48, #50, #54
 
 ### Version 0.7.0
 
