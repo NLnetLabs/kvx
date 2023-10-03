@@ -125,6 +125,14 @@ fn queue(store: &KeyValueStore) -> Result<(), kvx::Error> {
 
 ## Changelog
 
+### Version 0.9.0
+
+Merged:
+- Schedule tasks without finishing existing #56
+
+This is a breaking change because the timestamp used for tasks
+now uses milliseconds instead of seconds.
+
 ### Version 0.8.0
 
 This release introduces a number of breaking changes. In particular,
