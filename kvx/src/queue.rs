@@ -11,21 +11,25 @@ use crate::{
 
 const SEPARATOR: char = '-';
 
-fn now() -> u64 {
+fn now() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("time-travel is not supported")
-        .as_secs()
+        .as_millis()
 }
 
 struct TaskKey<'a> {
     pub name: Cow<'a, SegmentBuf>,
-    pub timestamp: u64,
+    pub timestamp_millis: u128,
 }
 
 impl<'a> TaskKey<'a> {
     fn key(&self) -> Key {
-        Key::from_str(&format!("{}{}{}", self.timestamp, SEPARATOR, self.name)).unwrap()
+        Key::from_str(&format!(
+            "{}{}{}",
+            self.timestamp_millis, SEPARATOR, self.name
+        ))
+        .unwrap()
     }
 
     fn running_key(&self) -> Key {
@@ -52,7 +56,7 @@ impl TryFrom<&Key> for TaskKey<'_> {
             .ok_or(Error::InvalidKey)?;
         Ok(TaskKey {
             name: Cow::Owned(Segment::parse(name)?.into()),
-            timestamp: ts.parse().map_err(|_| Error::InvalidKey)?,
+            timestamp_millis: ts.parse().map_err(|_| Error::InvalidKey)?,
         })
     }
 }
@@ -76,7 +80,7 @@ impl From<&RunningTask> for Key {
 #[derive(Clone, Debug)]
 pub struct PendingTask {
     pub name: SegmentBuf,
-    pub timestamp: u64,
+    pub timestamp_millis: u128,
     pub value: serde_json::Value,
 }
 
@@ -95,7 +99,7 @@ impl Display for PendingTask {
         write!(
             f,
             "{}{}{}",
-            self.timestamp,
+            self.timestamp_millis,
             SEPARATOR.encode_utf8(&mut [0; 4]),
             self.name,
         )
@@ -105,7 +109,7 @@ impl Display for PendingTask {
 #[derive(Clone, Debug)]
 pub struct RunningTask {
     pub name: SegmentBuf,
-    pub timestamp: u64,
+    pub timestamp_millis: u128,
     pub value: serde_json::Value,
 }
 
@@ -118,7 +122,7 @@ impl Display for RunningTask {
         write!(
             f,
             "{}{}{}",
-            self.timestamp,
+            self.timestamp_millis,
             SEPARATOR.encode_utf8(&mut [0; 4]),
             self.name,
         )
@@ -173,18 +177,18 @@ pub trait Queue {
         &self,
         name: SegmentBuf,
         value: serde_json::Value,
-        timestamp: Option<u64>,
+        timestamp_millis: Option<u128>,
         existing: ScheduleMode,
     ) -> Result<()>;
 
-    /// Returns the scheduled time for the named task, if any.
-    fn pending_task_scheduled(&self, name: SegmentBuf) -> Result<Option<u64>>;
+    /// Returns the scheduled timestamp in ms for the named task, if any.
+    fn pending_task_scheduled(&self, name: SegmentBuf) -> Result<Option<u128>>;
 
     /// Marks a running task as finished. Fails if the task is not running.
     fn finish_running_task(&self, running: &Key) -> Result<()>;
 
     /// Reschedules a running task as pending. Fails if the task is not running.
-    fn reschedule_running_task(&self, running: &Key, timestamp: Option<u64>) -> Result<()>;
+    fn reschedule_running_task(&self, running: &Key, timestamp_millis: Option<u128>) -> Result<()>;
 
     /// Claims the next scheduled pending task, if any.
     fn claim_scheduled_pending_task(&self) -> Result<Option<RunningTask>>;
@@ -216,12 +220,12 @@ impl Queue for KeyValueStore {
         &self,
         name: SegmentBuf,
         value: serde_json::Value,
-        timestamp: Option<u64>,
+        timestamp_millis: Option<u128>,
         mode: ScheduleMode,
     ) -> Result<()> {
         let mut new_task = PendingTask {
             name,
-            timestamp: timestamp.unwrap_or(now()),
+            timestamp_millis: timestamp_millis.unwrap_or(now()),
             value,
         };
         let new_task_key = Key::from(&new_task);
@@ -269,7 +273,8 @@ impl Queue for KeyValueStore {
 
                         if let Some(pending) = pending_key_opt {
                             if let Ok(tk) = TaskKey::try_from(&pending) {
-                                new_task.timestamp = new_task.timestamp.min(tk.timestamp);
+                                new_task.timestamp_millis =
+                                    new_task.timestamp_millis.min(tk.timestamp_millis);
                             }
                             s.delete(&pending)?;
                         }
@@ -295,10 +300,10 @@ impl Queue for KeyValueStore {
         })
     }
 
-    fn reschedule_running_task(&self, running: &Key, timestamp: Option<u64>) -> Result<()> {
+    fn reschedule_running_task(&self, running: &Key, timestamp_millis: Option<u128>) -> Result<()> {
         let pending_key = {
             let mut task_key = TaskKey::try_from(running)?;
-            task_key.timestamp = timestamp.unwrap_or_else(now);
+            task_key.timestamp_millis = timestamp_millis.unwrap_or_else(now);
 
             task_key.pending_key()
         };
@@ -316,15 +321,15 @@ impl Queue for KeyValueStore {
                 .list_keys(&Self::pending_scope())?
                 .into_iter()
                 .filter_map(|k| TaskKey::try_from(&k).ok())
-                .filter(|tk| tk.timestamp <= now)
-                .min_by_key(|tk| tk.timestamp)
+                .filter(|tk| tk.timestamp_millis <= now)
+                .min_by_key(|tk| tk.timestamp_millis)
             {
                 let pending_key = pending.pending_key();
 
                 if let Some(value) = kv.get(&pending_key)? {
                     let running_task = RunningTask {
                         name: pending.name.into_owned(),
-                        timestamp: now,
+                        timestamp_millis: now,
                         value,
                     };
                     let running_key = Key::from(&running_task);
@@ -345,7 +350,7 @@ impl Queue for KeyValueStore {
         let now = now();
 
         let reschedule_after = reschedule_after.unwrap_or(&KeyValueStore::RESCHEDULE_AFTER);
-        let reschedule_timeout = now - reschedule_after.as_secs();
+        let reschedule_timeout = now - reschedule_after.as_millis();
 
         self.transaction(
             &Self::lock_scope(),
@@ -354,7 +359,7 @@ impl Queue for KeyValueStore {
                     .into_iter()
                     .filter_map(|k| {
                         let task = TaskKey::try_from(&k).ok()?;
-                        if task.timestamp <= reschedule_timeout {
+                        if task.timestamp_millis <= reschedule_timeout {
                             Some(task)
                         } else {
                             None
@@ -365,7 +370,7 @@ impl Queue for KeyValueStore {
 
                         let pending_key = TaskKey {
                             name: Cow::Borrowed(&tk.name),
-                            timestamp: now,
+                            timestamp_millis: now,
                         }
                         .pending_key();
 
@@ -377,13 +382,13 @@ impl Queue for KeyValueStore {
         )
     }
 
-    fn pending_task_scheduled(&self, name: SegmentBuf) -> Result<Option<u64>> {
+    fn pending_task_scheduled(&self, name: SegmentBuf) -> Result<Option<u128>> {
         self.execute(&Self::lock_scope(), |kv| {
             kv.list_keys(&Self::pending_scope()).map(|keys| {
                 keys.into_iter()
                     .filter_map(|k| TaskKey::try_from(&k).ok())
                     .find(|p| p.name.as_ref() == &name)
-                    .map(|p| p.timestamp)
+                    .map(|p| p.timestamp_millis)
             })
         })
     }
