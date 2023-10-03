@@ -134,6 +134,17 @@ impl Display for RunningTask {
 pub enum ScheduleMode {
     /// Store new task:
     /// - replace old task if it exists
+    /// - do NOT finish old task
+    ReplaceExisting,
+
+    /// Store new task:
+    /// - replace old task if it exists
+    /// - use the soonest scheduled time if old task exists
+    /// - do NOT finish old task if it is running
+    ReplaceExistingSoonest,
+
+    /// Store new task:
+    /// - replace old task if it exists
     /// - finish old task if it is running
     FinishOrReplaceExisting,
 
@@ -257,6 +268,24 @@ impl Queue for KeyValueStore {
                             s.store(&new_task_key, new_task.value.clone())
                         }
                     }
+                    ScheduleMode::ReplaceExisting => {
+                        if let Some(pending) = pending_key_opt {
+                            s.delete(&pending)?;
+                        }
+                        s.store(&new_task_key, new_task.value.clone())
+                    }
+                    ScheduleMode::ReplaceExistingSoonest => {
+                        if let Some(pending) = pending_key_opt {
+                            if let Ok(tk) = TaskKey::try_from(&pending) {
+                                new_task.timestamp_millis =
+                                    new_task.timestamp_millis.min(tk.timestamp_millis);
+                            }
+                            s.delete(&pending)?;
+                        }
+
+                        let new_task_key = Key::from(&new_task);
+                        s.store(&new_task_key, new_task.value.clone())
+                    }
                     ScheduleMode::FinishOrReplaceExisting => {
                         if let Some(running) = running_key_opt {
                             s.delete(&running)?;
@@ -315,24 +344,33 @@ impl Queue for KeyValueStore {
 
     fn claim_scheduled_pending_task(&self) -> Result<Option<RunningTask>> {
         self.execute(&Self::lock_scope(), |kv| {
-            let now = now();
+            let tasks_before = now();
 
             if let Some(pending) = kv
                 .list_keys(&Self::pending_scope())?
                 .into_iter()
                 .filter_map(|k| TaskKey::try_from(&k).ok())
-                .filter(|tk| tk.timestamp_millis <= now)
+                .filter(|tk| tk.timestamp_millis <= tasks_before)
                 .min_by_key(|tk| tk.timestamp_millis)
             {
                 let pending_key = pending.pending_key();
 
                 if let Some(value) = kv.get(&pending_key)? {
-                    let running_task = RunningTask {
+                    let mut running_task = RunningTask {
                         name: pending.name.into_owned(),
-                        timestamp_millis: now,
+                        timestamp_millis: tasks_before,
                         value,
                     };
-                    let running_key = Key::from(&running_task);
+                    let mut running_key = Key::from(&running_task);
+
+                    if kv.has(&running_key)? {
+                        // It's not pretty to sleep blocking, even if it's
+                        // for 1 ms, but if we don't then get a name collision
+                        // with an existing running task.
+                        std::thread::sleep(Duration::from_millis(1));
+                        running_task.timestamp_millis = now();
+                        running_key = Key::from(&running_task);
+                    }
 
                     kv.move_value(&pending_key, &running_key)?;
 
