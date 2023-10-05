@@ -16,6 +16,7 @@ use crate::{
 };
 
 pub const LOCK_FILE_NAME: &str = "lockfile.lock";
+pub const LOCK_FILE_DIR: &str = ".locks";
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Disk {
@@ -114,7 +115,7 @@ impl WriteStore for Disk {
         let path = key.as_path(&self.root);
         let dir = key.scope().as_path(&self.root);
 
-        if key.name().as_str() == LOCK_FILE_NAME {
+        if key.scope().to_string().starts_with(LOCK_FILE_DIR) {
             return Err(Error::InvalidKey);
         }
 
@@ -263,7 +264,9 @@ impl WriteStore for Disk {
 
 impl KeyValueStoreBackend for Disk {
     fn transaction(&self, scope: &Scope, callback: TransactionCallback) -> Result<()> {
-        let _lock = FileLock::lock(scope.as_path(&self.root))?;
+        let lock_file_dir = self.root.join(LOCK_FILE_DIR);
+
+        let _lock = FileLock::lock(scope.as_path(lock_file_dir))?;
 
         let mut store = self.clone();
         callback(&mut store)?;
@@ -409,7 +412,7 @@ fn list_files_recursive(dir: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
         let path = result?.path();
         if path.is_dir() {
             files.extend(list_files_recursive(path)?);
-        } else if !path.ends_with(LOCK_FILE_NAME) {
+        } else {
             files.push(path);
         }
     }
@@ -422,7 +425,7 @@ fn list_dirs_recursive(dir: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
 
     for result in fs::read_dir(dir)? {
         let path = result?.path();
-        if path.is_dir() {
+        if path.is_dir() && !path.ends_with(LOCK_FILE_DIR) {
             dirs.extend(list_dirs_recursive(&path)?);
             dirs.push(path);
         }
