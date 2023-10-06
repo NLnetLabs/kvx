@@ -425,7 +425,8 @@ fn list_dirs_recursive(dir: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
 
     for result in fs::read_dir(dir)? {
         let path = result?.path();
-        if path.is_dir() && !path.ends_with(LOCK_FILE_DIR) {
+        if path.is_dir() && !path.ends_with(LOCK_FILE_DIR) && path.read_dir()?.next().is_some() {
+            // a non-empty directory exists for the scope, recurse and add
             dirs.extend(list_dirs_recursive(&path)?);
             dirs.push(path);
         }
