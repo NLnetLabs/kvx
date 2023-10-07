@@ -43,7 +43,7 @@ impl MemoryStore {
     }
 
     fn insert(&mut self, namespace: &NamespaceBuf, key: &Key, value: serde_json::Value) {
-        let map = self.0.entry(namespace.clone()).or_insert_with(HashMap::new);
+        let map = self.0.entry(namespace.clone()).or_default();
         map.insert(key.clone(), value);
     }
 
