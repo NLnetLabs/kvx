@@ -15,8 +15,8 @@ postgres = ["dep:postgres", "dep:r2d2_postgres", "dep:postgres-types"]
 queue = []
 
 [dependencies]
-kvx_macros = { path = "../kvx-macros", version = "0.9.1", optional = true }
-kvx_types = { path = "../kvx-types", version = "0.9.1" }
+kvx_macros = { path = "../kvx-macros", version = "0.9.2", optional = true }
+kvx_types = { path = "../kvx-types", version = "0.9.2" }
 lazy_static = "1.4"
 postgres = { version = "0.19", features = [
     "with-serde_json-1",

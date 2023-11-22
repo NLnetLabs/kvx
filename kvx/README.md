@@ -125,8 +125,12 @@ fn queue(store: &KeyValueStore) -> Result<(), kvx::Error> {
 
 ## Changelog
 
+## Version 0.9.2
+- Always use a tempfile for new values on disk #60
+
 ### Version 0.9.1
 - Keep lock files outside of scope dirs #58
+
 ### Version 0.9.0
 
 Merged:
