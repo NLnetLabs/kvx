@@ -125,7 +125,7 @@ fn queue(store: &KeyValueStore) -> Result<(), kvx::Error> {
 
 ## Changelog
 
-## Version 0.9.2
+### Version 0.9.2
 - Always use a tempfile for new values on disk #60
 
 ### Version 0.9.1
