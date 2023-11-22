@@ -123,44 +123,47 @@ impl WriteStore for Disk {
             fs::create_dir_all(dir)?;
         }
 
-        if path.exists() {
-            // tempfile ensures that the temporary file is cleaned up in case it
-            // would be left behind because of some issue.
-            let tmp_file = tempfile::NamedTempFile::new_in(&self.tmp).map_err(|e| {
-                Error::IoWithContext(
-                    format!(
-                        "Issue writing tmp file for key: {}. Check permissions and space on disk.",
-                        key
-                    ),
-                    e,
-                )
-            })?;
+        // Always use a tempfile to ensure that the file can be written entirely.
+        // If we don't, then we can end up with half-written files in case there
+        // is some issue during writing, e.g. disk is full, or the application is
+        // suddenly stopped, or the server reboots, etc.
 
-            fs::write(&tmp_file, format!("{:#}", value).as_bytes()).map_err(|e| {
-                Error::IoWithContext(
-                    format!(
-                        "Issue writing tmp file: {} for key: {}. Check permissions and space on disk.",
-                        tmp_file.as_ref().display(), key
-                    ),
-                    e,
-                )
-            })?;
+        // tempfile ensures that the temporary file is cleaned up in case it
+        // would be left behind because of some issue.
+        let tmp_file = tempfile::NamedTempFile::new_in(&self.tmp).map_err(|e| {
+            Error::IoWithContext(
+                format!(
+                    "Issue writing tmp file for key: {}. Check permissions and space on disk.",
+                    key
+                ),
+                e,
+            )
+        })?;
 
-            // persist ensures that the temporary file is not deleted
-            // when the instance is dropped.
-            tmp_file.persist(&path).map_err(|e| {
-                Error::IoWithContext(
-                    format!(
-                        "Cannot rename temp file {} to {}.",
-                        e.file.path().display(),
-                        path.display()
-                    ),
-                    e.error,
-                )
-            })?;
-        } else {
-            fs::write(path, format!("{:#}", value).as_bytes())?;
-        }
+        fs::write(&tmp_file, format!("{:#}", value).as_bytes()).map_err(|e| {
+            Error::IoWithContext(
+                format!(
+                    "Issue writing tmp file: {} for key: {}. Check permissions and space on disk.",
+                    tmp_file.as_ref().display(),
+                    key
+                ),
+                e,
+            )
+        })?;
+
+        // persist ensures that the temporary file is persisted at the
+        // target location and any existing file is replaced. On unix
+        // systems this relies on an atomic move.
+        tmp_file.persist(&path).map_err(|e| {
+            Error::IoWithContext(
+                format!(
+                    "Cannot rename temp file {} to {}.",
+                    e.file.path().display(),
+                    path.display()
+                ),
+                e.error,
+            )
+        })?;
 
         Ok(())
     }
