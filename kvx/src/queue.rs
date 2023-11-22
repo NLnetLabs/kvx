@@ -85,7 +85,7 @@ pub struct PendingTask {
 }
 
 impl PendingTask {
-    const SEGMENT: &Segment = segment!("pending");
+    const SEGMENT: &'static Segment = segment!("pending");
 }
 
 impl PartialEq for PendingTask {
@@ -114,7 +114,7 @@ pub struct RunningTask {
 }
 
 impl RunningTask {
-    const SEGMENT: &Segment = segment!("running");
+    const SEGMENT: &'static Segment = segment!("running");
 }
 
 impl Display for RunningTask {
