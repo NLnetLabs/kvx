@@ -455,12 +455,12 @@ mod tests {
 
     #[test]
     fn queue_thread_workers() {
-        let queue = queue_store("test_queue");
+        let queue = queue_store("queue_thread_workers");
         queue.inner.clear().unwrap();
 
         thread::scope(|s| {
             let create = s.spawn(|| {
-                let queue = queue_store("test_queue");
+                let queue = queue_store("queue_thread_workers");
 
                 for i in 1..=10 {
                     let name = &format!("job-{i}");
@@ -487,7 +487,7 @@ mod tests {
 
             for _i in 1..=10 {
                 s.spawn(move || {
-                    let queue = queue_store("test_queue");
+                    let queue = queue_store("queue_thread_workers");
 
                     while queue.pending_tasks_remaining().unwrap() > 0 {
                         if let Some(running_task) = queue.claim_scheduled_pending_task().unwrap() {
@@ -511,7 +511,7 @@ mod tests {
 
     #[test]
     fn test_reschedule_long_running() {
-        let queue = queue_store("test_cleanup_queue");
+        let queue = queue_store("test_reschedule_long_running");
         queue.inner.clear().unwrap();
 
         let name = "job";
@@ -555,7 +555,7 @@ mod tests {
 
     #[test]
     fn test_reschedule_finished_task() {
-        let queue = queue_store("test_cleanup_queue");
+        let queue = queue_store("test_reschedule_finished_task");
         queue.inner.clear().unwrap();
 
         let name = "task";
@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn test_schedule_with_existing_task() {
-        let queue = queue_store("test_cleanup_queue");
+        let queue = queue_store("test_schedule_with_existing_task");
         queue.inner.clear().unwrap();
 
         let name: SegmentBuf = segment!("task").into();

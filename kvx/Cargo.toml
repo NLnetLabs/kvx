@@ -26,6 +26,7 @@ r2d2_postgres = { version = "0.18", optional = true }
 rand = "0.8"
 serde_json = "1.0"
 tempfile = "3.1.0"
+fd-lock = "4.0.1"
 thiserror = "1.0"
 url = "2.3"
 

@@ -269,7 +269,8 @@ impl KeyValueStoreBackend for Disk {
     fn transaction(&self, scope: &Scope, callback: TransactionCallback) -> Result<()> {
         let lock_file_dir = self.root.join(LOCK_FILE_DIR);
 
-        let _lock = FileLock::lock(scope.as_path(lock_file_dir))?;
+        let mut file_lock = FileLock::create(scope.as_path(lock_file_dir))?;
+        let _write_lock = file_lock.write()?;
 
         let mut store = self.clone();
         callback(&mut store)?;
@@ -348,63 +349,33 @@ impl PathBufExt for PathBuf {
 
 #[derive(Debug)]
 struct FileLock {
-    file: File,
-    lock_path: PathBuf,
+    lock: fd_lock::RwLock<File>,
 }
 
 impl FileLock {
-    const POLL_LOCK_INTERVAL: Duration = Duration::from_millis(10);
-
-    pub fn lock(path: impl AsRef<Path>) -> Result<Self> {
+    fn create(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-
-        if !path.try_exists().unwrap_or_default() {
-            fs::create_dir_all(path)?;
-        }
 
         let lock_path = path.join(LOCK_FILE_NAME);
 
-        let file = loop {
-            let file = OpenOptions::new()
-                .create_new(true)
-                .read(true)
-                .write(true)
-                .open(&lock_path);
-
-            match file {
-                Ok(file) => break file,
-                _ => thread::sleep(Self::POLL_LOCK_INTERVAL),
-            };
+        let lock_file = if lock_path.exists() {
+            File::open(lock_path)?
+        } else {
+            if !path.try_exists().unwrap_or_default() {
+                fs::create_dir_all(path)?;
+            }
+            File::create(lock_path)?
         };
 
-        let lock = FileLock { file, lock_path };
+        let lock = fd_lock::RwLock::new(lock_file);
 
-        Ok(lock)
+        Ok(FileLock { lock })
     }
 
-    pub fn unlock(&self) -> Result<()> {
-        fs::remove_file(&self.lock_path)?;
-        Ok(())
-    }
-}
-
-impl Deref for FileLock {
-    type Target = File;
-
-    fn deref(&self) -> &Self::Target {
-        &self.file
-    }
-}
-
-impl DerefMut for FileLock {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.file
-    }
-}
-
-impl Drop for FileLock {
-    fn drop(&mut self) {
-        self.unlock().ok();
+    fn write(&mut self) -> Result<fd_lock::RwLockWriteGuard<'_, File>> {
+        self.lock
+            .write()
+            .map_err(|e| Error::Other(format!("Cannot get file lock: {}", e)))
     }
 }
 
