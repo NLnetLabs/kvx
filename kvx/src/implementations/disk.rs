@@ -1,11 +1,8 @@
 use std::{
     fmt::Display,
     fs,
-    fs::{File, OpenOptions},
-    ops::{Deref, DerefMut},
+    fs::File,
     path::{Component, Path, PathBuf},
-    thread,
-    time::Duration,
 };
 
 use serde_json::Value;
