@@ -1,7 +1,7 @@
 use std::{
     fmt::Display,
     fs,
-    fs::File,
+    fs::{File, OpenOptions},
     path::{Component, Path, PathBuf},
 };
 
@@ -350,19 +350,18 @@ struct FileLock {
 }
 
 impl FileLock {
-    fn create(path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref();
-
+    fn create(path: PathBuf) -> Result<Self> {
         let lock_path = path.join(LOCK_FILE_NAME);
 
-        let lock_file = if lock_path.exists() {
-            File::open(lock_path)?
-        } else {
-            if !path.try_exists().unwrap_or_default() {
-                fs::create_dir_all(path)?;
-            }
-            File::create(lock_path)?
-        };
+        if !path.try_exists().unwrap_or_default() {
+            fs::create_dir_all(path)?;
+        }
+
+        let lock_file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(lock_path)?;
 
         let lock = fd_lock::RwLock::new(lock_file);
 
