@@ -126,7 +126,16 @@ fn queue(store: &KeyValueStore) -> Result<(), kvx::Error> {
 ## Changelog
 
 ### Version 0.9.3
-- Improve lockfile handling #62
+
+There was an issue where stale lock files may not be cleaned up, e.g.
+if the application using this library is terminated by the OOM-killer,
+or the server is shut down. To avoid this issue we now rely on the
+'fd-lock' crate, which in turn uses 'flock' that relies on OS level
+support to ensure that the caller has unique access to the file handle
+for a lock file.
+
+See: https://github.com/NLnetLabs/kvx/pull/62
+
 
 ### Version 0.9.2
 - Always use a tempfile for new values on disk #60
