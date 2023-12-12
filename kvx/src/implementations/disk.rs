@@ -353,15 +353,16 @@ impl FileLock {
     fn create(path: PathBuf) -> Result<Self> {
         let lock_path = path.join(LOCK_FILE_NAME);
 
-        if !path.try_exists().unwrap_or_default() {
-            fs::create_dir_all(path)?;
-        }
+        let mut options = OpenOptions::new();
+        options.create(true).read(true).write(true);
 
-        let lock_file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .open(lock_path)?;
+        let lock_file = match options.open(&lock_path) {
+            Ok(file) => file,
+            Err(_) => {
+                fs::create_dir_all(path)?;
+                options.open(&lock_path)?
+            }
+        };
 
         let lock = fd_lock::RwLock::new(lock_file);
 
